@@ -1,0 +1,13 @@
+# The library arrives as a WHEEL — never a checkout. The CP-16 wheel or
+# later: earlier wheels do not ship the pins, and the trainer leg raises
+# PinsConfigurationError on first use (library ADR-0017, FINDINGS F-01).
+# No release channel exists yet; build it from the server repo:
+#   cd ../gsj-harness-rollout-server && python -m build --wheel
+# then install dist/gsj_harness_rollout_server-0.1.0-py3-none-any.whl.
+# When an index exists this line becomes:
+#   gsj-harness-rollout-server>=0.1.0
+pytest
+
+# The training stack (slime v0.3.0 from THUDM git + router-tokens patch,
+# Megatron-LM, torch) is the estate's, installed per the vendored
+# slime_bridge/README.md — deliberately not pinned here (CP-17).
