@@ -22,7 +22,12 @@ point of this repo as much as the code.
   Same three assertions as the slime bridge, plus the batching stage
   slime never needed (`[B, L]` padding); verl is real in the tests, no
   double. `verl_bridge/decisions/ADR-0003` records the route decision
-  and the uni-agent answer. CP-21 runs the loop.
+  and the uni-agent answer. **CP-21 ran the loop**:
+  `verl_bridge/cp21_loop/` is the one-step harness (collected bodies →
+  reward attach → the bridge → one real verl optimizer step →
+  verl's own HF export for the estate engine), mirroring the v0 fit
+  loop's plumbing around a standalone `TrainingWorker` — ADR-0004
+  records the shape; F-12/F-13 record what verl needed worked around.
 
 ## Conventions
 
