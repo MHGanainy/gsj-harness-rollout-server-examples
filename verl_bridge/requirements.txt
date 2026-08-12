@@ -1,0 +1,24 @@
+# The library arrives as a WHEEL — never a checkout. The CP-16 wheel or
+# later (earlier wheels do not ship the pins; library ADR-0017, F-01):
+#   cd ../gsj-harness-rollout-server && python -m build --wheel
+#   pip install dist/gsj_harness_rollout_server-0.1.0-py3-none-any.whl
+#
+# verl is REAL here, not a test double (contrast FINDINGS F-03: slime is
+# not importable off-estate; verl is). It installs --no-deps against the
+# SHA uni-agent pins as its submodule — the surface the bridge was read
+# against — with its import closure pinned explicitly below:
+#   pip install --no-deps "verl @ git+https://github.com/volcengine/verl.git@1ae945592754cbeb1350cbe092fe6117070fd4c7"
+#
+# verl's import closure for verl.protocol + core_algos on a CPU-only box
+# (versions per verl's own requirements.txt at that SHA):
+torch
+tensordict>=0.8.0,<=0.10.0,!=0.9.0
+numpy>=2.0.0
+ray
+packaging>=20.0
+omegaconf
+transformers>=5.5.3,!=5.6.0,<5.11
+codetiming
+pydantic
+
+pytest

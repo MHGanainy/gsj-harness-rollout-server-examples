@@ -16,6 +16,13 @@ point of this repo as much as the code.
   library's ADR-0018 records why it lives here (the scope law: a bridge
   exists to feed a trainer, so it is the trainer's); `slime_bridge/decisions/ADR-0001`
   records what it is and isn't. CP-17 runs the loop.
+- **`verl_bridge/`** — callback-shaped `SessionResult` → verl `DataProto`
+  (0.9.0.dev @ uni-agent's submodule pin `1ae9455`), built at library
+  CP-20 for M6a: the second trainer, the proof the boundary is real.
+  Same three assertions as the slime bridge, plus the batching stage
+  slime never needed (`[B, L]` padding); verl is real in the tests, no
+  double. `verl_bridge/decisions/ADR-0003` records the route decision
+  and the uni-agent answer. CP-21 runs the loop.
 
 ## Conventions
 
