@@ -199,8 +199,9 @@ one that doesn't shows up ONLY as an elevated recompute-vs-captured
 delta (the replay line), indistinguishable from capture noise — pin it.
 
 The GPU leg, measured at CP-26 on the reference estate (F-34, F-35): it
-takes the first visible CUDA device (`cuda:0`) — on a shared box set
-`CUDA_VISIBLE_DEVICES=<free gpu>` yourself after checking `nvidia-smi`;
+takes the first visible CUDA device — on a shared box check `nvidia-smi`
+and pass `--gpu <free gpu>` (sets `CUDA_VISIBLE_DEVICES` for you; F-34,
+fixed CP-27), or set `CUDA_VISIBLE_DEVICES=<free gpu>` yourself;
 expect ~20 minutes and ~90 GB for a 71-row 0.6B batch with long rows,
 during which the console is silent — and a
 `CUDACachingAllocator … memory allocation failed` WARNING mid-leg is
@@ -219,8 +220,7 @@ assumes the alias in `GSJ_VLLM_SSH_HOST` (default `h200-admin`)
 resolves — that is the operator workstation, never the estate box
 itself, where it dies with a misleading `ssh: Could not resolve
 hostname` after announcing the engine stop. (train.py's closing
-printout still says "estate-side" — it is wrong the same way; library
-wishlist.) Point it at the printed HF export, probing logprobs before
+printout says the same since CP-27.) Point it at the printed HF export, probing logprobs before
 and after with `slime_bridge/cp17_loop/probe_sync.py` (identical
 weights probe exactly 0.0; a real sync moves nearly every position).
 Engine downtime is about a minute. Drain in-flight episodes before
@@ -245,9 +245,10 @@ sync is not yet instrumented (A-13).
   one measured collection landed the citation reward 1 in 27, the next
   1 in 112 — CP-21's own conclusion is that the ~1/24 heuristic does not
   hold. A batch too small to contain a nonzero reward trains on zeros;
-  `train.py` prints one `reward=` line per body so you see it before the
-  GPU does — there is no aggregate line (F-27), count with
-  `grep -o 'reward=[0-9.]*' | sort | uniq -c`.
+  `train.py` prints one `reward=` line per body plus an aggregate
+  `reward distribution: k/N nonzero` line (F-27, fixed CP-27) — and a
+  `collect total:` line after collection — so you see it before the
+  GPU does.
 - **`--episodes N` means N attempts** (Polar's `num_samples`), not N
   collected episodes; rejected traces are consumed attempts, quarantined
   with findings, never auto-retried.
@@ -304,7 +305,8 @@ reference estate and logged every stumble as `FINDINGS.md` F-14–F-39
 when a fix is only words). Still live, unfixed by any document:
 
 - GPU topology drifts between sessions — discover free GPUs at run time
-  (`nvidia-smi`) and pass `CUDA_VISIBLE_DEVICES` yourself (F-34);
+  (`nvidia-smi`) and pass `--gpu <index>` (or `CUDA_VISIBLE_DEVICES`)
+  yourself (F-34); the default is still first-visible;
 - the artifacts dir must be visible to the grading host (sync it if you
   collect and train on different machines) — stated here, enforced
   nowhere;

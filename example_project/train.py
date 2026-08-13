@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -51,6 +52,12 @@ def parse_args():
     p.add_argument("--snapshot", help="pinned HF snapshot dir (the served "
                                       "model's weights) — required to train")
     p.add_argument("--ckpt-dir", default=_HERE / "ckpt", type=Path)
+    p.add_argument("--gpu", default=None, metavar="N",
+                   help="GPU index for the training step — sets "
+                        "CUDA_VISIBLE_DEVICES=N so the worker's first visible "
+                        "device IS your chosen one (F-34: default is whatever "
+                        "the environment exposes first; on a shared box check "
+                        "`nvidia-smi` and pick a free ~90 GB device)")
     return p.parse_args()
 
 
@@ -82,6 +89,7 @@ def collect(cfg, rows: list[dict], out: Path, episodes: int, timeout: float) -> 
     same validator the receiver ran (law 6: this side re-verifies)."""
     client = RolloutClient(cfg.polar.rollout.base_url)
     tasks = []
+    total_ok = total_rejected = 0
     for row in rows:
         # The row's image pin (ADR-0022): the bank means what it meant only
         # under the image it was built for. A drifted config collects
@@ -112,6 +120,12 @@ def collect(cfg, rows: list[dict], out: Path, episodes: int, timeout: float) -> 
                 {**result, "gsj_uid": row_uid(row)}))     # remember the group
         print(f"[train] {row_uid(row)}: {len(accepted)}/{episodes} attempts "
               f"qualified -> {out}")
+        total_ok += len(accepted)
+        total_rejected += len(rejected)
+    # F-27: the aggregate the stranger hand-counted (71/72 at CP-26).
+    print(f"[train] collect total: {total_ok}/{total_ok + total_rejected} "
+          f"terminal attempts qualified across {len(tasks)} rows "
+          f"({total_rejected} rejected/quarantined) -> {out}")
 
 
 def grade_and_ingest(cfg, out: Path) -> list:
@@ -122,6 +136,7 @@ def grade_and_ingest(cfg, out: Path) -> list:
         _HERE.parent / "slime_bridge" / "reward_cited_pages.py")
     page_counts = cfg.user.get("page_counts", {})         # ours, via `user:`
     records = []
+    rewards = []
     bodies = sorted(out.glob("*.json"))
     assert bodies, f"{out} holds no collected bodies — run --collect-only first"
     for path in bodies:
@@ -135,7 +150,15 @@ def grade_and_ingest(cfg, out: Path) -> list:
         # The three assertions + trainer-side `checks` run INSIDE ingest:
         # mask-before-ratio, sentinel rejection, validate_session_result.
         records.extend(bridge.ingest_session_result(body, uid=uid))
+        rewards.append(grade["reward"])
         print(f"[train] {path.name}: reward={grade['reward']:.3f} uid={uid}")
+
+    # F-27: the distribution the run book promises, aggregated — sparse is
+    # the measured shape (1/27–1/112), but ALL-zero trains on nothing:
+    # see it here, before the GPU does.
+    nonzero = sum(1 for r in rewards if r != 0.0)
+    print(f"[train] reward distribution: {nonzero}/{len(rewards)} nonzero, "
+          f"mean={sum(rewards) / len(rewards):.4f}, max={max(rewards):.3f}")
 
     # A collection pre-filtered to qualifying episodes must have zero
     # masked rows — a masked row's 0.0 reward would still enter its GRPO
@@ -161,6 +184,11 @@ def grade_and_ingest(cfg, out: Path) -> list:
 
 def main() -> None:
     args = parse_args()
+    if args.gpu is not None:
+        # F-34: must land before the first CUDA call — under
+        # CUDA_VISIBLE_DEVICES the worker's hardcoded cuda:0 maps to the
+        # chosen physical device.
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
     cfg = load_config(args.config)
 
     if not args.dry_run and not (args.collect_only or args.snapshot):
@@ -220,7 +248,10 @@ def main() -> None:
          "advantages": adv, "train_metrics": metrics, "hf_export": hf_dir},
         indent=2, default=str))
     print(f"[train] HF export: {hf_dir}")
-    print("[train] next — the sync (estate-side, ~1 min engine downtime):\n"
+    print("[train] next — the sync (WORKSTATION-side, not the estate box: the\n"
+          "        script drives the estate over ssh via GSJ_VLLM_SSH_HOST,\n"
+          "        default 'h200-admin' — run it where that alias resolves,\n"
+          "        F-29; ~1 min engine downtime):\n"
           f"        staging/serving/serve-updated.sh {hf_dir}\n"
           "        probe before/after: slime_bridge/cp17_loop/probe_sync.py\n"
           "        then collect again; drain in-flight episodes first (A-13)")
