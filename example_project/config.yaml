@@ -1,0 +1,121 @@
+# config.yaml — the one YAML for gsj-harness-rollout-server.
+#
+# Copy this file and edit the SIX values marked SUPPLY. Every other key
+# has a working default; the common ones are shown commented IN PLACE
+# (uncomment the line where it stands — never re-add a section header),
+# each saying where its value came from. The complete field list with
+# defaults is gsj_rollout/config.py, commented at the source. Unknown
+# keys are rejected loudly, naming the section and key; the free `user:`
+# section at the bottom is yours and is never read by the library.
+#
+# One file, two audiences: the SERVER renders Polar's topology and the
+# receiver from it; the TRAINER renders TaskRequest bodies from it. Both
+# `gsj-rollout serve` and train.py take it with --config.
+
+estate:
+  # SUPPLY — git host serving one repo per case, timestep-{T} branches.
+  # {case_id} is substituted per task. Episode containers clone this URL
+  # THEMSELVES, from inside the sandbox — it must resolve on the
+  # sandbox's network, not just from the host.
+  clone_url_for: "http://172.28.9.10:3000/gsj-staging/{case_id}.git"
+
+  # SUPPLY — the MCP retrieval service (temporally-scoped search). Same
+  # rule: reachable from inside episode containers. The HMAC secret it
+  # verifies must be exported in the env var named by
+  # mcp_token_secret_env for BOTH the gateway and the service.
+  mcp_url_base: "http://172.28.9.1:8790"
+
+  # SUPPLY — the serving engine (vLLM) the gateway proxies to, host-side.
+  # NO /v1 suffix — Polar's proxy appends /v1/chat/completions itself.
+  serving_base_url: "http://127.0.0.1:8000"
+
+  # SUPPLY — byte-for-byte the engine's --served-model-name.
+  model: "Qwen/Qwen3-0.6B"
+
+  # mcp_token_secret_env: GSJ_MCP_TOKEN_SECRET  # env var holding the MCP secret
+  # provider: gsj             # pi provider key; model_name = "<provider>/<model>"
+
+runtime:
+  # The clone_url_for/mcp_url_base values SHOWN above are container IPs on
+  # the reference estate's compose network — this key is what makes them
+  # reachable from episode containers (default-bridge → compose-network
+  # traffic is blocked by docker, measured at the cost of an episode). If
+  # your endpoints are host-reachable, delete this line (default: bridge).
+  network: gsj-staging-net
+  # backend: docker           # a config value, not an assumption (law 5)
+  # image: ghcr.io/mhganainy/gsj-pi-harness:pi0.83.0-3
+  #                           # the published pinned harness image (node +
+  #                           # git + pi 0.83.0) every measured episode
+  #                           # ran; build your own to override — the
+  #                           # taskbank pins it per row
+
+# harness:                    # omissible wholesale — all defaults
+#   tools_allowlist: [read, ls, grep, find, write, edit, bash,
+#                     mcp_gsj_search_case, mcp_gsj_search_decisions,
+#                     mcp_gsj_case_status, mcp_gsj_decision_stats]
+#                             # the G3-pinned roster: any OTHER roster fails
+#                             # G3:tool_roster_hash_not_approved until you re-pin
+#   artifacts_dir: /tmp/gsj-artifacts   # host-side; deliverables land here and
+#                             # the reward grader reads them — point somewhere
+#                             # durable for real runs
+#   workdir: /workspace       # in-image; G2's approved hash assumes it —
+#                             # changing it means a re-pin walk
+#   context_window: 32768     # must match the engine's --max-model-len
+#   max_tokens: 8192          # per-completion cap
+#   thinking: "off"           # not a knob: thinking-on needs a symmetric served
+#                             # template and re-conceiving gate G6 (A-22)
+
+# builder:                    # omissible wholesale — all defaults
+#   end_of_turn_token_id: 151645   # <|im_end|> under the Qwen3 tokenizer
+#                             # (A-15: always an explicit pin, never
+#                             # auto-detected). If you change estate.model,
+#                             # re-derive against the SERVED tokenizer:
+#                             #   tokenizer.convert_tokens_to_ids("<|im_end|>")
+#   # generation_prompt_glue_ids: unset — needed only under an asymmetric
+#   #                           chat template (the measured estates serve a
+#   #                           symmetric one and merge natively)
+
+# checks:                     # omissible wholesale — all defaults
+#   zero_at_mask1_max_rate: 0.25   # bf16 engines emit exact-0.0 logprobs at
+#                             # mask==1 (measured 4-25% across estates and
+#                             # episodes); 0.25 admitted every clean episode
+#                             # and rejected a 26.6% repetitive loop — one
+#                             # degenerate loop measured 24.9%, so treat the
+#                             # boundary as load-bearing, not generous
+#   sentinel_threshold: -9000.0    # vLLM's -9999.0 placeholder never trains
+#   reject_toolless_roster: false  # arm to hard-reject episodes with zero
+#                             # successful built-in tool calls (H-41)
+
+polar:
+  gateway:
+    # SUPPLY — the ONE URL that must work from the host (task dispatch)
+    # AND from inside episode containers (the agent's model calls). A LAN
+    # IP or the estate network's gateway IP — never localhost. Its port
+    # must be the gateway's listen port (default 8100; uncomment `port:`
+    # below if you change it here).
+    public_url: "http://172.28.9.1:8100"
+    # host: 0.0.0.0
+    # port: 8100              # must agree with public_url's port
+    # engine: vllm
+  # rollout:
+  #   host: 127.0.0.1
+  #   port: 8080              # the trainer's submit/poll endpoint
+  # heartbeat_interval_seconds: 30
+
+receiver:
+  # SUPPLY — where accepted traces land, as JSON, one file per episode.
+  # No default on purpose: this is your training data — durable storage.
+  traces_dir: /data/gsj/traces
+  # host: 127.0.0.1
+  # port: 8300                # callback endpoint; Polar posts session results here
+  # quarantine_dir: <traces_dir>/quarantine   # rejected traces, with findings
+
+user:
+  # Yours: the library validates this is a mapping and never reads it.
+  # train.py in this project reads page counts per case from here (the
+  # citation reward needs the document length; the bank doesn't carry it).
+  page_counts:
+    case_0001: 18
+    case_0002: 22
+    case_0003: 15
+    case_0004: 20

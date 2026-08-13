@@ -1,0 +1,43 @@
+# example_project — the trainer host's closure (verl leg, ADR-0023 in the
+# library repo). One command installs all of it: bash install.sh
+#
+# The library itself arrives as a WHEEL (CP-16 or later — earlier wheels
+# do not ship the pins). Until the first PyPI upload (library wishlist 17)
+# build it from a checkout:
+#   cd ../../gsj-harness-rollout-server && python -m build --wheel
+# then install.sh picks up dist/gsj_harness_rollout_server-*.whl.
+# When the index exists, this becomes: gsj-harness-rollout-server>=0.1.0
+#
+# verl is installed --no-deps from git at the pinned SHA (bridge.VERL_SHA;
+# uni-agent's own submodule pin) by install.sh — NOT from this file:
+# a requirements line cannot express --no-deps, and installing verl WITH
+# its declared closure drags GPU-stack pins (flash-attn expectations) that
+# the measured loop runs without (F-12). Its real import closure is stated
+# here instead, explicitly — including the five packages the closure does
+# not declare (measured ModuleNotFoundError chain, CP-21 §2):
+
+# -- verl.protocol + core_algos closure (CPU-safe; versions per verl's own
+#    requirements.txt at the pin)
+torch                       # GPU hosts: match the wheel to YOUR driver —
+                            # CP-21's box needed torch==2.13.0+cu126 (the
+                            # default PyPI wheel is cu130, "driver too old")
+tensordict>=0.8.0,<=0.10.0,!=0.9.0
+numpy>=2.0.0
+ray
+packaging>=20.0
+omegaconf
+transformers>=5.5.3,!=5.6.0,<5.11
+codetiming
+pydantic
+
+# -- the five the closure doesn't state (the fit loop's imports, found by
+#    running: torchdata, datasets, pillow, cachetools, tqdm)
+torchdata
+datasets
+pillow
+cachetools
+tqdm
+
+# -- this project
+pyarrow                     # reads taskbank.parquet
+pytest
