@@ -46,6 +46,12 @@ point of this repo as much as the code.
   `requirements.txt`, `.venv`, and run book. Nothing here is installed.
 - The library arrives as a **wheel**, not a checkout — that is the point
   (the CP-16 packaging fix is what makes `checks` work from a wheel).
+  Honesty rider (CP-26 F-15): until the PyPI name is claimed (library
+  wishlist 17) the wheel is BUILT from a library checkout that must sit
+  beside this repo — `install.sh` documents the layout — so today a
+  consumer holds both trees even though only the wheel is installed. The
+  server role additionally runs Polar from that same checkout's
+  `vendor/polar/`.
 - Commits tracking a library checkpoint are titled `CP-NN (library): …`;
   this repo has no CP numbering of its own.
 - Every friction against the library surface gets a row in

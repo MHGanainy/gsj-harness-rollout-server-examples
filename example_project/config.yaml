@@ -1,6 +1,10 @@
 # config.yaml — the one YAML for gsj-harness-rollout-server.
 #
-# Copy this file and edit the SIX values marked SUPPLY. Every other key
+# Edit THIS FILE IN PLACE: train.py and `gsj-rollout serve` default to
+# `config.yaml` beside this script, and the run book's commands pass no
+# --config — an edited COPY under another name is read by nothing unless
+# you add --config <copy> to every command (CP-26 F-19).
+# Edit the SIX values marked SUPPLY. Every other key
 # has a working default; the common ones are shown commented IN PLACE
 # (uncomment the line where it stands — never re-add a section header),
 # each saying where its value came from. The complete field list with
@@ -104,8 +108,11 @@ polar:
 
 receiver:
   # SUPPLY — where accepted traces land, as JSON, one file per episode.
-  # No default on purpose: this is your training data — durable storage.
-  traces_dir: /data/gsj/traces
+  # No default on purpose: this is your training data — durable storage,
+  # and it must be WRITABLE BY THE UID running `gsj-rollout serve` (the
+  # server mkdirs it at startup; a root-owned parent like the reference
+  # box's /data fails there — CP-26 F-26). A home path is fine.
+  traces_dir: /home/YOU/gsj-traces
   # host: 127.0.0.1
   # port: 8300                # callback endpoint; Polar posts session results here
   # quarantine_dir: <traces_dir>/quarantine   # rejected traces, with findings

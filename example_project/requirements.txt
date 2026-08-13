@@ -20,7 +20,12 @@
 #    requirements.txt at the pin)
 torch                       # GPU hosts: match the wheel to YOUR driver —
                             # CP-21's box needed torch==2.13.0+cu126 (the
-                            # default PyPI wheel is cu130, "driver too old")
+                            # default PyPI wheel is a cu13x build, "driver
+                            # too old" at the first CUDA call). The cure,
+                            # measured at CP-26 (F-16) — the +cuXXX local
+                            # tag is REQUIRED or pip silently no-ops:
+                            #   pip install 'torch==2.13.0+cu126' \
+                            #     --index-url https://download.pytorch.org/whl/cu126
 tensordict>=0.8.0,<=0.10.0,!=0.9.0
 numpy>=2.0.0
 ray
@@ -37,6 +42,19 @@ datasets
 pillow
 cachetools
 tqdm
+
+# -- the GPU-path closure (CP-26 F-17): loop.make_worker traverses
+#    verl.workers.engine_workers -> checkpoint_engine -> rollout.utils,
+#    which import uvicorn and fastapi; the FSDP worker needs peft.
+#    Found the same way (one ModuleNotFoundError per run); CP-21's venv
+#    carried them by accident. verl's metadata also declares hydra-core,
+#    pybind11, pylatexenc, tensorboard, wandb — the measured loop runs
+#    without them, so pip will print an ERROR-labelled "requires X"
+#    grumble after any later install in this venv; that noise is the
+#    ADR-0023 --no-deps choice, ignore it.
+uvicorn
+fastapi
+peft
 
 # -- this project
 pyarrow                     # reads taskbank.parquet
