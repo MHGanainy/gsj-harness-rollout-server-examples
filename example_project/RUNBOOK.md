@@ -6,17 +6,20 @@ given, but you do not need it to run.
 
 ## What you need in hand — from your operator, before any command
 
-The stranger test (CP-26) measured this list; nothing on it is fetchable
-or derivable from the documents alone (F-14, F-22, F-23):
+The stranger test (CP-26) measured this list. Since library CP-29 the
+*code* is fetchable — the wheel from PyPI, both repos from GitHub — so
+F-14 is retired and what remains operator-held is the estate knowledge
+(F-22, F-23):
 
-- **Two directories, side by side**: this examples repo AND the library
-  repo (`gsj-harness-rollout-server`) as its SIBLING — install.sh builds
-  the wheel from `../../gsj-harness-rollout-server/`. Neither is
-  published: the examples repo has no public remote at all, and the
-  library's GitHub mirror (github.com/MHGanainy/gsj-harness-rollout-server)
-  is public but STALE (last pushed at CP-19 — it predates this entire
-  consumer surface; do not install from it). Until PyPI (library
-  wishlist 17), your operator hands you both trees.
+- **This repo**: `git clone
+  https://github.com/MHGanainy/gsj-harness-rollout-server-examples`.
+  The trainer role needs nothing else checked out — install.sh installs
+  the library from PyPI (`gsj-harness-rollout-server`, v0.1.0). The
+  **server role** additionally needs the library repo
+  (`git clone https://github.com/MHGanainy/gsj-harness-rollout-server`,
+  current since CP-29) as this repo's SIBLING, for `vendor/polar/`; a
+  sibling checkout with a built wheel in `dist/` also overrides the PyPI
+  install for developers running unreleased library changes.
 - **Note**: `train.py` is NOT self-contained in `example_project/` — it
   imports `../verl_bridge/` (the conversion) and
   `../slime_bridge/reward_cited_pages.py` (the grader). Move the whole
@@ -90,14 +93,16 @@ runs the estate, you need only this project and the handover list above.
 bash install.sh
 ```
 
-That is: a python3.12 venv; `requirements.txt` (the verl import closure,
-stated explicitly — the desk closure verl's metadata does not declare
-PLUS the GPU-path three found at CP-26: uvicorn, fastapi, peft — F-17);
-the library wheel (PyPI once published; the locally built wheel until
-then — if `dist/` is empty the script stops FIRST, before any download,
-and prints copy-pasteable build commands that work with no system pip,
-F-15/F-31); and verl itself `--no-deps` from git at the pinned SHA. Why
-it cannot be one `pip install X`: ADR-0023 in the library repo.
+That is: a python3.12 venv; the library (from PyPI —
+`gsj-harness-rollout-server>=0.1.0`, published at library CP-29 — or a
+sibling-checkout wheel when one exists, which takes precedence; the
+library installs FIRST so a failure lands before the multi-GB
+requirements download, keeping F-31's property); `requirements.txt` (the
+verl import closure, stated explicitly — the desk closure verl's
+metadata does not declare PLUS the GPU-path three found at CP-26:
+uvicorn, fastapi, peft — F-17); and verl itself `--no-deps` from git at
+the pinned SHA. Why it cannot be one `pip install X`: ADR-0023 in the
+library repo.
 
 Three traps, measured (F-16, F-28, F-30):
 

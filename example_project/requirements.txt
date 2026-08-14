@@ -2,11 +2,11 @@
 # library repo). One command installs all of it: bash install.sh
 #
 # The library itself arrives as a WHEEL (CP-16 or later — earlier wheels
-# do not ship the pins). Until the first PyPI upload (library wishlist 17)
-# build it from a checkout:
+# do not ship the pins): gsj-harness-rollout-server>=0.1.0 from PyPI,
+# published at library CP-29 and installed by install.sh, not from this
+# file. A sibling-checkout build overrides it (the developer path):
 #   cd ../../gsj-harness-rollout-server && python -m build --wheel
-# then install.sh picks up dist/gsj_harness_rollout_server-*.whl.
-# When the index exists, this becomes: gsj-harness-rollout-server>=0.1.0
+# and install.sh picks up dist/gsj_harness_rollout_server-*.whl instead.
 #
 # verl is installed --no-deps from git at the pinned SHA (bridge.VERL_SHA;
 # uni-agent's own submodule pin) by install.sh — NOT from this file:

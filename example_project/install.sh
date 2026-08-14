@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
-# The one command (ADR-0023, library repo): venv, the library wheel, the
-# stated closure, then verl --no-deps at the pinned SHA — in that order.
+# The one command (ADR-0023, library repo): venv, the library (PyPI, or a
+# sibling-checkout wheel when one exists — library CP-29), the stated
+# closure, then verl --no-deps at the pinned SHA — in that order.
 # Two steps are genuinely two (the --no-deps git line cannot ride a
 # requirements file or a pip extra, and PyPI refuses direct git URLs in
 # published metadata); this script is where they become one command.
 #
-# Layout requirement (CP-26 F-15): the LIBRARY repo must be checked out
-# as a SIBLING of this examples repo —
+# Layout note (CP-26 F-15, revised at library CP-29): the library now
+# installs from PyPI (`gsj-harness-rollout-server`, published v0.1.0), so
+# the trainer role needs NO library checkout. A SIBLING checkout —
 #     <parent>/gsj-harness-rollout-server/          (the library)
 #     <parent>/gsj-harness-rollout-server-examples/ (this repo)
-# — because the wheel is built from that checkout until the PyPI name
-# is claimed (library wishlist 17). Network note: the verl step clones
-# github.com; the torch step downloads from PyPI or download.pytorch.org.
+# — with a built wheel in its dist/ takes precedence when present, so a
+# developer can run against unreleased library changes; the server role
+# still needs that checkout for vendor/polar/ either way. Network note:
+# the verl step clones github.com; the torch step downloads from PyPI or
+# download.pytorch.org.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -19,25 +23,25 @@ VERL_SHA=1ae945592754cbeb1350cbe092fe6117070fd4c7   # == bridge.VERL_SHA
 
 python3.12 -m venv .venv
 
-# The library, as a wheel — the LOCAL build, deliberately not the index:
-# until the first upload lands (library wishlist 17) the PyPI name is
-# unclaimed, and an index-first install would trust whoever claims it.
-# The gate runs FIRST (CP-26 F-31): fail here, before the multi-GB
-# requirements download, not after it.
+# The library: PyPI by default, published at library CP-29 (ADR-0023's
+# local-wheel-first ordering was justified by the name being UNCLAIMED —
+# an index-first install would have trusted whoever claimed it; the name
+# is now ours, so the index is the default). A sibling-checkout wheel,
+# when one has been built, takes precedence: a developer running against
+# unreleased library changes keeps the old path. The CP-26 F-31 property
+# (fail before the multi-GB requirements download, not after) is kept by
+# installing the library FIRST — it is the small step, and the likeliest
+# to fail on a box with no network or a broken sibling build.
 WHEEL=(../../gsj-harness-rollout-server/dist/gsj_harness_rollout_server-*.whl)
-if [ ! -e "${WHEEL[0]}" ]; then
-  echo "install.sh: no local wheel found — build it first (CP-26 F-15: the" >&2
-  echo "commands below work on a box with no system pip; they use THIS venv):" >&2
-  echo "  $PWD/.venv/bin/pip install build" >&2
-  echo "  (cd ../../gsj-harness-rollout-server && $PWD/.venv/bin/python -m build --wheel)" >&2
-  echo "then re-run bash install.sh. Or, once the package is published" >&2
-  echo "(library wishlist 17):" >&2
-  echo "  ./.venv/bin/pip install 'gsj-harness-rollout-server>=0.1.0'" >&2
-  exit 1
+if [ -e "${WHEEL[0]}" ]; then
+  echo "install.sh: using the sibling-checkout wheel ${WHEEL[0]} (developer path;" >&2
+  echo "delete the library's dist/ to install the published PyPI wheel instead)" >&2
+  ./.venv/bin/pip install "${WHEEL[0]}"
+else
+  ./.venv/bin/pip install 'gsj-harness-rollout-server>=0.1.0'
 fi
 
 ./.venv/bin/pip install -r requirements.txt
-./.venv/bin/pip install "${WHEEL[0]}"
 
 ./.venv/bin/pip install --no-deps \
   "verl @ git+https://github.com/volcengine/verl.git@${VERL_SHA}"
