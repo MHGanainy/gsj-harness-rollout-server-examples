@@ -293,7 +293,14 @@ def collect(cfg, rows: list[dict], out: Path, episodes: int, timeout: float) -> 
     # F-27: the aggregate the stranger hand-counted (71/72 at CP-26).
     print(f"[train] collect total: {total_ok}/{total_ok + total_rejected} "
           f"terminal attempts qualified across {len(tasks)} rows "
-          f"({total_rejected} rejected/quarantined) -> {out}")
+          f"({total_rejected} rejected/quarantined client-side) -> {out}")
+    # F-51 (CP-32): the counts above are THIS process's verdicts only. In
+    # the receiver-leg pins mismatch (§Thinking) this line reads healthy
+    # while the durable archive receives nothing.
+    print("[train] the receiver holds the archive's own verdict — after a "
+          "first collect confirm traces_dir gained files; healthy here + "
+          "empty archive + G6-only quarantine = the receiver-leg pins "
+          "mismatch (RUNBOOK §Thinking)")
     # CP-31: an all-G6 wipeout is the mode/pins disagreement in the one
     # place this process can see it — name it, don't let it read as a
     # broken gate (F-18's failure mode).
@@ -379,7 +386,14 @@ def grade_and_ingest(cfg, out: Path) -> list:
     # masked rows — a masked row's 0.0 reward would still enter its GRPO
     # group's statistics. Inspect before training, never train through it.
     n_masked = sum(1 for r in records if not r.trainable)
-    assert n_masked == 0, f"{n_masked} masked rows in a qualifying collection"
+    assert n_masked == 0, (
+        f"{n_masked}/{len(records)} masked rows in a qualifying collection"
+        + (" — ALL rows masked is the mode/pins disagreement at ingest "
+           "(ADR-0024) wearing its trainer-side face: this process graded "
+           "a foreign-mode --out directory (the G6 re-check masks, it does "
+           "not name — F-49, measured CP-32). Re-run with the --thinking "
+           "that collected this directory (RUNBOOK §Thinking)"
+           if n_masked == len(records) else ""))
 
     # F-10, enforced: a group needs >= 2 EPISODES (sessions — one session's
     # traces share a uid and cannot centre each other). Singleton groups
@@ -398,6 +412,9 @@ def grade_and_ingest(cfg, out: Path) -> list:
 
 
 def main() -> None:
+    # F-46 (CP-32): python block-buffers redirected stdout, so a
+    # backgrounded `… > log` showed nothing for an entire collect.
+    sys.stdout.reconfigure(line_buffering=True)
     args = parse_args()
     if args.gpu is not None:
         # F-34: must land before the first CUDA call — under

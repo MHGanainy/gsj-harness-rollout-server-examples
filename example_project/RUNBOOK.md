@@ -196,12 +196,23 @@ the two Polar commands to run beside it, and that print is python
 stdout — under `nohup … > log` it sits block-buffered and the log shows
 nothing while the receiver listens silently (F-20). Read the commands,
 then background it with `PYTHONUNBUFFERED=1` if you want the log live.
-The two printed Polar commands use a path RELATIVE to the library repo
-root (`vendor/polar/.venv/bin/polar`) — run them with the library repo
-as your cwd (F-21), the gateway one with your operator's secret in the
-`GSJ_MCP_TOKEN_SECRET=<secret>` slot.
+The two printed Polar commands resolve `vendor/polar/.venv/bin/polar`
+against the INSTALLED library — under a PyPI install that is an
+absolute path into site-packages, and it DOES NOT EXIST (no wheel
+ships `vendor/`; measured at CP-32, F-45 — running the command as
+printed dies "No such file or directory"). Keep the printed
+`PYTHONPATH=` prefix exactly, but take the binary from the sibling
+LIBRARY CHECKOUT instead: run both commands from the library repo root
+with `vendor/polar/.venv/bin/polar` substituted for the printed
+absolute path (that is where F-21's venv was provisioned). The gateway
+one takes your operator's secret in the `GSJ_MCP_TOKEN_SECRET=<secret>`
+slot.
 
-Trainer side, from this directory (`./.venv/bin/python`, or activate):
+Trainer side, from this directory (`./.venv/bin/python`, or activate).
+(train.py line-buffers its own prints since CP-32, so a backgrounded
+`… > log` shows progress live; before that the log sat empty for an
+entire collect — python block-buffers redirected stdout, F-20's shape
+on the trainer side, F-46.)
 
 ```
 ./.venv/bin/python train.py --collect-only        # submit the bank's train rows
@@ -231,10 +242,12 @@ during which the console is silent — and a
 the allocator retrying, not the crash it resembles (F-12/F-13's
 padded-width shape; the leg completed through it). Those figures are a
 **thinking-off** batch: a thinking-on collection's rows run ~2× longer
-(max measured 26.5k ids, CP-28) and the flash-free branch materializes
-logits at padded width (F-13), so expect the ON-mode GPU leg to sit
-closer to the memory ceiling and retry more — unmeasured until CP-32
-(no thinking-on batch has crossed this leg yet).
+and the flash-free branch materializes logits at padded width (F-13).
+Measured at CP-32 (2026-08-14, the first ON batch through this leg):
+72 rows with merged ids to 32,645 peaked at **135 GB of the 143 GB
+device (94%)** and completed in 11m38s with zero allocator retries —
+the ceiling is real, and an ON collection with more long rows may not
+fit one device.
 
 Two stores, one relationship (F-37): the receiver writes every ACCEPTED
 trace to `traces_dir` (the durable archive); `train.py --collect-only`
@@ -294,16 +307,23 @@ episodes per mode, reference estate, Qwen3-0.6B, the golden task;
 `docs/polar/thinking/` in the library repo):
 
 - **wall clock**: median **21.1 s/episode** (15.1–44.7) vs 7.7 s off —
-  **~2.7×**. No pooled thinking-on collection has been measured yet:
-  the 2.7× is per-episode fact, so expect the default 72-attempt
-  collect — 6m37s when CP-26 measured it OFF — to run somewhere near
-  **15–20 minutes** (extrapolation, labelled as such; CP-32 measures
-  it). A slow collect is the mode working, not a malfunction.
+  **~2.7×** serial. Pooled, measured at CP-32 (2026-08-14, reference
+  estate, same engine both legs): the default 72-attempt collect ran
+  **13m35s ON vs 4m36s OFF the same day — 2.95× pooled**, yield 72/72
+  in BOTH modes. Pooling does not absorb the mode's cost; the ratio
+  survives it. A slow collect is the mode working, not a malfunction.
 - **tokens**: response ids ~2× (median 7,136 vs 3,705). **Context**:
   median 31% of the 32k window, max **81%** — at which one episode's
   final completion came back empty (its deliverable was already
   written; context pressure's first symptom, one episode short of the
-  wall). Zero `finish_reason: length` in either mode at this scale.
+  wall). Zero `finish_reason: length` in either mode at that scale
+  (n=15/leg) — but at the default collect's scale the wall IS hit:
+  CP-32 (2026-08-14, 72 ON attempts) measured **7/72 episodes ending
+  `finish_reason: length`**, max merged row 32,645 of the 32,768
+  window — and every one of them still QUALIFIED. Qualification does
+  not screen length-terminated episodes (F-47): they enter the
+  training set silently, so check the printed batch and your own
+  merged-ids distribution before trusting a long-context collection.
 - **what it buys**: deliverables written **8/15 vs 1/15**; cited
   deliverables 3/15 vs 1/15; MCP retrieval successes 4.1 vs 2.5 per
   episode. Tool use improves, not degrades. Reward is accordingly less
@@ -337,9 +357,19 @@ measured off unless labelled**.
    follows the flag automatically);
 3. one directory per mode — `--out collected-on` / `--out
    collected-off`. Never mix: the trainer-side gate re-runs at ingest
-   under the *current process's* pins, so grading a mixed directory
-   fails with G6-named findings on the foreign-mode half. Pass the same
-   `--thinking` to every stage that reads a given `--out`.
+   under the *current process's* pins — but the failure does NOT say
+   G6 (measured at CP-32, F-49): every foreign-mode body ingests with
+   its rows silently masked untrainable, grading LOOKS healthy through
+   the per-body reward lines, and the run dies only at
+   `AssertionError: N masked rows in a qualifying collection`
+   (train.py names the mode/pins hypothesis on that assert since
+   CP-32). If you see that assert, your `--thinking` does not match
+   the directory you are grading. Pass the same `--thinking` to every
+   stage that reads a given `--out`. And note the RECEIVER's archive
+   is not per-mode (F-48): across a serve restart both modes' accepted
+   traces land in ONE `traces_dir`, distinguishable only by content —
+   point each mode at its own `traces_dir` (edit the config between
+   legs) if you will ever re-grade from the archive.
 
 Compare the two legs on their printed lines: `collect total:` (yield +
 wall), `reward distribution:` (nonzero count), and the think-share line
@@ -354,8 +384,9 @@ off-mode signature).
   under 7 minutes** with Polar pooling six episode containers against one
   engine (2026-08-13, **thinking-off**; the yield held 15/15 per leg in
   CP-28's serial collections, both modes — the wall clock is what the
-  mode moves, §Thinking) — a 98% yield is the healthy shape, not a
-  broken gate (F-18). The famous attrition numbers belong elsewhere:
+  mode moves, §Thinking; CP-32's pooled A/B, 2026-08-14, measured
+  **72/72 in both modes**) — a 98–100% yield is the healthy shape, not
+  a broken gate (F-18). The famous attrition numbers belong elsewhere:
   **19 attempts per qualifying episode** is the STRICT qualification
   standard (CP-09′, not this loop), and CP-21's **112 attempts**
   (extended loudly from a stated 28) were about the *reward*, not the
@@ -386,10 +417,12 @@ off-mode signature).
   sub-percent share of positions over 0.21 is healthy; a 10× mean or
   positions-over-0.21 in the tens of percent means the snapshot is not
   the engine's weights (re-check the revision, F-23). One honesty rider
-  (F-43): every floor constant was measured on **thinking-off**
-  collections — no thinking-on batch has been replayed through this leg
-  yet, so under the shipped default read the printout with extra
-  suspicion in BOTH directions until CP-32 measures it.
+  (F-43, resolved at CP-32): every floor CONSTANT is still a
+  thinking-off measurement, but the first thinking-on batch has now
+  crossed this leg (2026-08-14, 72 rows): **mean|Δ| 0.016546 with
+  456/128,586 (0.35%) positions over 0.21** — ~2× the shipped
+  constant, same order, sub-percent tail. The order-of-magnitude
+  reading above holds under ON exactly as written.
 - **Singleton GRPO groups are dropped loudly** (F-10): a group of one has
   no baseline and verl hands back the raw reward as its "advantage".
 - **Entropy/KL are OFF** in this one-step shape — right for an audited
