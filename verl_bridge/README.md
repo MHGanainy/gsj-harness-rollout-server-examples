@@ -1,5 +1,13 @@
 # verl_bridge — callback-shaped `SessionResult` → verl `DataProto`
 
+> **Mode note (library CP-31)**: every number in this document — the
+> collection-cadence figures included — was measured **thinking-off**,
+> the only mode that existed before library CP-30. The shipped default
+> in `example_project/` is now ON, which changes wall clock (~2.7×),
+> token counts (~2×), and the G6 pins both legs must resolve — current
+> per-mode expectations live in `example_project/RUNBOOK.md` §Thinking
+> (F-42).
+
 Built at library CP-20 (M6a: the second trainer). The slime bridge
 (`../slime_bridge/`, CP-16) is the template; the target class changed,
 the three assertions did not. ADR-0003 records the route decision —

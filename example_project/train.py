@@ -7,15 +7,19 @@ One GRPO step per invocation, driven by the two files beside this script:
 skill cards resolved at build). The verl machinery is behind imports
 (`verl_bridge/loop.py`, documented); what stays HERE is everything a
 consumer must see rather than inherit: uid grouping (F-10), reward attach
-(F-02), the three bridge assertions at ingest, the replay floor, and the
-entropy/KL caution. RUNBOOK.md walks this file end to end — including what
-collection costs (expect many attempts per qualifying episode; that is the
-measured shape, not a malfunction).
+(F-02), the three bridge assertions at ingest, the replay floor, the
+entropy/KL caution — and, since library CP-31, the thinking-mode/pins
+agreement (G6 is per-mode pins data; this script refuses to spend the
+estate on a mismatch it can see). RUNBOOK.md walks this file end to end.
 
 Stages (composable across hosts — collect on the estate, train on a GPU):
     python train.py --collect-only        # submit + save accepted bodies
     python train.py --dry-run             # grade+ingest+batch, CPU only
     python train.py --snapshot <hf dir>   # the full step, needs the GPU
+
+Pass the SAME --thinking (or none, for the config's value) to every stage
+that touches one --out directory: the trainer-side gate re-runs at ingest
+under whichever pins this process resolved.
 """
 
 from __future__ import annotations
@@ -27,13 +31,25 @@ import sys
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(_HERE.parent / "verl_bridge"))     # bridge, loop
 
-import bridge   # noqa: E402  — the CP-20 conversion, three assertions inside
-import loop     # noqa: E402  — the verl fit-loop machinery (documented)
+# The heavy imports (bridge, loop, gsj_rollout) happen in _heavy_imports(),
+# AFTER the thinking/pins preflight — gsj_rollout.checks resolves
+# GSJ_PINS_PATH exactly once, at first import (library CP-11b), so the
+# mode must pick the pins before anything imports checks. Module-level
+# imports here would fix the pins to whatever the environment happened to
+# hold. (Bonus: --help works without the verl closure installed.)
+bridge = loop = None                         # bound by _heavy_imports()
+RolloutClient = partition_session_results = None
+load_config = render_task_request = None
 
-from gsj_rollout.client import RolloutClient, partition_session_results  # noqa: E402
-from gsj_rollout.config import load_config, render_task_request  # noqa: E402
+_PI_LEVELS = ("off", "minimal", "low", "medium", "high", "xhigh", "max")
+THINKING_ON_PINS = _HERE / "pins" / "thinking-on" / "pins.gsj.json"
+# The two reference G6 tails (library ADR-0024; token ids under the served
+# Qwen3 tokenizer). Used only to CLASSIFY the resolved pins in words —
+# the gate itself is the library's, unchanged.
+_ON_TAIL = [[151644, 77091, 198]]                       # bare generation prompt
+_OFF_TAIL = [[151644, 77091, 198, 151667, 271, 151668, 271]]  # empty-think block
+_THINK_OPEN, _THINK_CLOSE = 151667, 151668              # <think> / </think>
 
 
 def parse_args():
@@ -41,11 +57,23 @@ def parse_args():
     p.add_argument("--config", default=_HERE / "config.yaml")
     p.add_argument("--bank", default=_HERE / "taskbank.parquet")
     p.add_argument("--out", default=_HERE / "collected", type=Path,
-                   help="accepted SessionResult bodies land/read here")
+                   help="accepted SessionResult bodies land/read here — use "
+                        "a separate dir per thinking mode (e.g. "
+                        "collected-on / collected-off) when comparing")
     p.add_argument("--episodes", type=int, default=8,
                    help="ATTEMPTS per bank row (num_samples) — attempts, not "
                         "collected episodes; see RUNBOOK §what to expect")
     p.add_argument("--timeout", type=float, default=900.0)
+    p.add_argument("--thinking", default=None, metavar="LEVEL",
+                   help="override config.yaml's harness.thinking for this run "
+                        "(default: the config's value — this project ships "
+                        "\"medium\", i.e. ON). pi levels: off|minimal|low|"
+                        "medium|high|xhigh|max; every non-off level is "
+                        "wire-equivalent (CP-28). COST: thinking-on runs "
+                        "~2.7x wall clock and ~2x tokens vs off (CP-28, "
+                        "2026-08-14) — and needs the thinking-on pins on both "
+                        "legs (train.py handles its own; restart "
+                        "`gsj-rollout serve` per RUNBOOK when you flip modes)")
     p.add_argument("--collect-only", action="store_true")
     p.add_argument("--dry-run", action="store_true",
                    help="stop before the GPU: grade, ingest, batch, assert")
@@ -59,6 +87,143 @@ def parse_args():
                         "the environment exposes first; on a shared box check "
                         "`nvidia-smi` and pick a free ~90 GB device)")
     return p.parse_args()
+
+
+def _effective_thinking(args) -> tuple[str, str]:
+    """The mode this run will submit with, and where it came from — decided
+    BEFORE any gsj_rollout import so the pins can follow it. The library's
+    validator is still the authority (main() re-validates through it);
+    this pre-read only needs off-vs-non-off and mirrors the validator's
+    YAML 1.1 mapping: pyyaml parses bare `on`/`off` as booleans."""
+    if args.thinking is not None:
+        return str(args.thinking), "--thinking"
+    try:
+        import yaml
+        raw = yaml.safe_load(Path(args.config).read_text()) or {}
+        value = (raw.get("harness") or {}).get("thinking", "off")
+    except Exception:
+        # Unreadable/invalid config: load_config will refuse it loudly in
+        # main() before anything touches the estate. Assume off here.
+        return "off", "config.yaml (unreadable — load_config decides)"
+    if isinstance(value, bool):
+        value = "off" if value is False else "on"
+    return str(value), "config.yaml"
+
+
+def _classify_pins(path: Path) -> str:
+    """'on' | 'off' | 'foreign' | 'unreadable' — by the G6 tail ids."""
+    try:
+        tail = json.loads(path.read_text())["pins"]["g6_expected_tail_ids"]
+    except Exception:
+        return "unreadable"
+    return "on" if tail == _ON_TAIL else "off" if tail == _OFF_TAIL else "foreign"
+
+
+def _pins_preflight(level: str, source: str) -> None:
+    """The CP-31 seam: make GSJ_PINS_PATH agree with the mode, or say in
+    WORDS what would otherwise happen — before the estate is spent. Runs
+    before the first gsj_rollout import (resolution is once-per-process,
+    library CP-11b). G6 is per-mode pins data (ADR-0024): mode and pins
+    are two statements of one fact, and a disagreement quarantines every
+    episode G6-only — a first run that produces nothing."""
+    thinking_on = level not in ("off", "False", "false")
+    env = os.environ.get("GSJ_PINS_PATH")
+
+    if env is None and thinking_on:
+        if not THINKING_ON_PINS.exists():
+            sys.exit(
+                f"train.py: thinking is {level!r} (ON) but the shipped "
+                f"thinking-on pins are missing at {THINKING_ON_PINS} — "
+                "default pins resolution means thinking-OFF, so every "
+                "episode would be quarantined G6-only. This file ships with "
+                "the examples repo (move the whole repo, F-32); it is "
+                "byte-equal to the library repo's "
+                "pins/thinking-on/pins.gsj.json — restore either and retry, "
+                "or run the off control: --thinking off")
+        os.environ["GSJ_PINS_PATH"] = str(THINKING_ON_PINS)
+        print(f"[train] pins: GSJ_PINS_PATH={THINKING_ON_PINS} (set by "
+              "train.py for this process — the RECEIVER is a separate "
+              "process and needs the same variable; RUNBOOK §Run)")
+        return
+
+    if env is None:
+        return  # off + default resolution: the off reference. Correct.
+
+    kind = _classify_pins(Path(env))
+    if kind == "unreadable":
+        sys.exit(f"train.py: GSJ_PINS_PATH={env} is not a readable pins "
+                 "file — fix or unset it (unset + the shipped default = "
+                 "thinking-on via ./pins/thinking-on/, off via the "
+                 "library's reference pins)")
+    if thinking_on and kind == "off":
+        sys.exit(
+            f"train.py: thinking is {level!r} (ON) but GSJ_PINS_PATH={env} "
+            "carries the thinking-OFF G6 tail — every collected episode "
+            "would be quarantined G6-only (G6:prompt_suffix_ne_tail_ids on "
+            "each) and the estate's time spent for nothing. The mode and "
+            "the pins are two statements of one fact (library ADR-0024). "
+            "Cure: unset GSJ_PINS_PATH (train.py then selects "
+            "./pins/thinking-on/pins.gsj.json itself) — and start "
+            "`gsj-rollout serve` with the thinking-on pins too, both law-6 "
+            "legs. For the off control instead: --thinking off")
+    if not thinking_on and kind == "on":
+        sys.exit(
+            f"train.py: thinking is 'off' but GSJ_PINS_PATH={env} carries "
+            "the thinking-ON G6 tail — every off-mode episode would be "
+            "quarantined G6-only. Cure: unset GSJ_PINS_PATH for off mode "
+            "(default resolution IS the off reference) and restart "
+            "`gsj-rollout serve` without it — pins resolve once per "
+            "process (CP-11b), so a restart is required, not optional")
+    if kind == "foreign":
+        print(f"[train] pins: GSJ_PINS_PATH={env} matches neither reference "
+              "G6 tail — assuming a re-derived foreign-estate pins file and "
+              "proceeding; if this run quarantines everything G6-only, the "
+              "pins' mode and harness.thinking disagree (ADR-0024)")
+    else:
+        print(f"[train] pins: GSJ_PINS_PATH={env} (inherited, "
+              f"thinking-{kind})")
+
+
+def _heavy_imports() -> None:
+    """Deferred to keep every gsj_rollout import behind the pins preflight
+    (module docstring; CP-11b). Rebinds the module-level names the rest of
+    the script uses."""
+    global bridge, loop, RolloutClient, partition_session_results
+    global load_config, render_task_request
+    sys.path.insert(0, str(_HERE.parent / "verl_bridge"))     # bridge, loop
+    import bridge as _bridge   # the CP-20 conversion, three assertions inside
+    import loop as _loop       # the verl fit-loop machinery (documented)
+    from gsj_rollout.client import (RolloutClient as _rc,
+                                    partition_session_results as _psr)
+    from gsj_rollout.config import (load_config as _lc,
+                                    render_task_request as _rtr)
+    bridge, loop = _bridge, _loop
+    RolloutClient, partition_session_results = _rc, _psr
+    load_config, render_task_request = _lc, _rtr
+
+
+def _warn_if_shipped_pins_drifted() -> None:
+    """Best-effort (never fatal): the shipped thinking-on copy's six non-G6
+    approved sets must equal the installed library's off reference (the
+    library's derive_pins.py guards its own pair; nothing guards THIS
+    copy). A mismatch means the wheel re-pinned past this repo — the
+    stranger-visible symptom would be *_not_approved on hash gates."""
+    try:
+        from gsj_rollout import checks
+        reference = (checks.CHECKOUT_PINS if checks.CHECKOUT_PINS.exists()
+                     else checks.PACKAGED_PINS)
+        ours = json.loads(THINKING_ON_PINS.read_text())["pins"]
+        theirs = json.loads(Path(reference).read_text())["pins"]
+        moved = [k for k in theirs
+                 if not k.startswith("g6_") and ours.get(k) != theirs[k]]
+        if moved:
+            print("[train] WARNING: the shipped pins/thinking-on/ copy has "
+                  f"drifted from the installed library's reference pins on "
+                  f"{', '.join(sorted(moved))} — the library re-pinned past "
+                  "this repo's copy (pins/README.md). Refresh the copy from "
+                  "the library repo, or expect *_not_approved quarantines")
+    except Exception:
+        pass
 
 
 def bank_rows(path: Path) -> list[dict]:
@@ -90,6 +255,7 @@ def collect(cfg, rows: list[dict], out: Path, episodes: int, timeout: float) -> 
     client = RolloutClient(cfg.polar.rollout.base_url)
     tasks = []
     total_ok = total_rejected = 0
+    g6_only_rejects = 0
     for row in rows:
         # The row's image pin (ADR-0022): the bank means what it meant only
         # under the image it was built for. A drifted config collects
@@ -114,6 +280,8 @@ def collect(cfg, rows: list[dict], out: Path, episodes: int, timeout: float) -> 
         accepted, rejected = partition_session_results(results)
         for result, findings in rejected:
             print(f"[train] rejected {result.get('session_id')}: {findings}")
+            if findings and all(str(f).startswith("G6:") for f in findings):
+                g6_only_rejects += 1
         for result in accepted:
             body_path = out / f"{result['session_id']}.json"
             body_path.write_text(json.dumps(
@@ -126,6 +294,36 @@ def collect(cfg, rows: list[dict], out: Path, episodes: int, timeout: float) -> 
     print(f"[train] collect total: {total_ok}/{total_ok + total_rejected} "
           f"terminal attempts qualified across {len(tasks)} rows "
           f"({total_rejected} rejected/quarantined) -> {out}")
+    # CP-31: an all-G6 wipeout is the mode/pins disagreement in the one
+    # place this process can see it — name it, don't let it read as a
+    # broken gate (F-18's failure mode).
+    if total_ok == 0 and g6_only_rejects and g6_only_rejects == total_rejected:
+        print("[train] every attempt was rejected with G6-only findings: "
+              "that is the thinking mode and the resolved pins DISAGREEING "
+              "(ADR-0024), not a broken gate — this process's pins passed "
+              "preflight, so check the RECEIVER leg too, and re-run with "
+              "matching GSJ_PINS_PATH on both (RUNBOOK §Thinking)")
+
+
+def _think_token_share(records: list) -> tuple[int, int]:
+    """(think mask-1 tokens, total mask-1 tokens) across the collection —
+    tags included, the CP-28 measurement's own convention. Deterministic
+    and tokenizer-free: the <think>/</think> ids segment the mask-1 spans
+    (CP-28 §4 — the builder's mask stays binary; a reasoning submask is
+    always DERIVED, exactly like this)."""
+    think = total = 0
+    for r in records:
+        inside = False
+        for tok, mask in zip(r.response_ids, r.response_mask):
+            if mask == 1:
+                total += 1
+            if tok == _THINK_OPEN:
+                inside = True
+            if mask == 1 and (inside or tok == _THINK_CLOSE):
+                think += 1
+            if tok == _THINK_CLOSE:
+                inside = False
+    return think, total
 
 
 def grade_and_ingest(cfg, out: Path) -> list:
@@ -149,16 +347,33 @@ def grade_and_ingest(cfg, out: Path) -> list:
             page_count=int(page_counts.get(case_id, cutoff)))
         # The three assertions + trainer-side `checks` run INSIDE ingest:
         # mask-before-ratio, sentinel rejection, validate_session_result.
+        # NOTE (CP-31): that re-validation runs under THIS process's pins —
+        # grading a thinking-on collection under off pins (or vice versa)
+        # fails here with G6-named findings; pass the same --thinking to
+        # every stage that reads this --out directory.
         records.extend(bridge.ingest_session_result(body, uid=uid))
         rewards.append(grade["reward"])
         print(f"[train] {path.name}: reward={grade['reward']:.3f} uid={uid}")
 
     # F-27: the distribution the run book promises, aggregated — sparse is
-    # the measured shape (1/27–1/112), but ALL-zero trains on nothing:
-    # see it here, before the GPU does.
+    # the measured shape (1/27–1/112 measured OFF; thinking-on measured
+    # richer, 3/15 — CP-28), but ALL-zero trains on nothing: see it here,
+    # before the GPU does.
     nonzero = sum(1 for r in rewards if r != 0.0)
     print(f"[train] reward distribution: {nonzero}/{len(rewards)} nonzero, "
           f"mean={sum(rewards) / len(rewards):.4f}, max={max(rewards):.3f}")
+
+    # CP-31, the trainability fact met where the reward is attached: in a
+    # thinking-on collection the reward lands on ALL mask-1 tokens, and
+    # most of them are reasoning (CP-28 measured median 67%).
+    think, total = _think_token_share(records)
+    if think:
+        print(f"[train] thinking-on collection: {100 * think // max(total, 1)}% "
+              f"of trainable (mask-1) tokens are <think> tokens "
+              f"({think}/{total}; CP-28 median: 67%) — under RLVR/GRPO that "
+              "share of the gradient mass rides reasoning. OPD: that is the "
+              "point. SFT on own reasoning at 0.6B: don't — derive a think "
+              "submask from ids 151667/151668 or use a teacher (CP-28 §4)")
 
     # A collection pre-filtered to qualifying episodes must have zero
     # masked rows — a masked row's 0.0 reward would still enter its GRPO
@@ -189,7 +404,31 @@ def main() -> None:
         # CUDA_VISIBLE_DEVICES the worker's hardcoded cuda:0 maps to the
         # chosen physical device.
         os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
+
+    # CP-31, in this order and before any gsj_rollout import (CP-11b):
+    # decide the mode, make the pins agree with it, then load the library.
+    level, source = _effective_thinking(args)
+    print(f"[train] thinking: {level} ({source})")
+    _pins_preflight(level, source)
+    if level not in ("off", "False", "false"):
+        print("[train] thinking-on costs ~2.7x wall clock and ~2x tokens vs "
+              "off (CP-28, 2026-08-14; median episode 7.7s -> 21.1s) — a "
+              "slow collect is the mode working, not a malfunction; "
+              "--thinking off collects the control")
+        _warn_after = True
+    else:
+        _warn_after = False
+    _heavy_imports()
+    if _warn_after:
+        _warn_if_shipped_pins_drifted()
+
     cfg = load_config(args.config)
+    if args.thinking is not None:
+        # The library's validator is the authority on levels (it names the
+        # silent-clamp trap); re-validate rather than assign, because
+        # assignment would bypass it.
+        cfg.harness = type(cfg.harness).model_validate(
+            {**cfg.harness.model_dump(), "thinking": args.thinking})
 
     if not args.dry_run and not (args.collect_only or args.snapshot):
         sys.exit("train.py: pass --snapshot <pinned HF dir> to train, or "

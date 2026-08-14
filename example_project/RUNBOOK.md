@@ -124,14 +124,23 @@ Three traps, measured (F-16, F-28, F-30):
   Bare `python` does not even exist on a stock Ubuntu box.
 
 **Foreign estate? Set `GSJ_PINS_PATH`.** The wheel ships the *reference
-estate's* approved sets (tool roster, system prompt, settings hashes). On
-your own estate every hash gate will fail `*_not_approved` — loudly, by
-design — until you derive your own pins and export `GSJ_PINS_PATH` before
-the first import of `gsj_rollout.checks`. On the reference estate, set
-nothing — and know that the warning still prints, in full, on EVERY
-import (`install.sh`, `gsj-rollout serve`, every `train.py` run). On the
-reference estate it is noise by design; the correct response is to do
-nothing (F-39).
+estate's thinking-OFF* approved sets (tool roster, system prompt,
+settings hashes — and gate G6's off-mode tail; the wheel carries NO
+thinking-on pins, F-40). On your own estate every hash gate will fail
+`*_not_approved` — loudly, by design — until you derive your own pins
+and export `GSJ_PINS_PATH` before the first import of
+`gsj_rollout.checks` (the resolution is once-per-process, fixed at
+import — library CP-11b; that is also why train.py defers its own
+imports, F-41). On the reference estate: for **thinking-off** set
+nothing — and know that the packaged-pins warning still prints, in
+full, on EVERY import (`install.sh`, `gsj-rollout serve`, every
+`train.py` run); it is noise by design and the correct response is to
+do nothing (F-39). For **thinking-on — this project's shipped
+default** — the variable IS used even on the reference estate: it must
+point at the thinking-on pins on both legs (§Thinking below; train.py
+sets its own leg, the serve command carries it inline), and because the
+variable is set, the packaged-pins warning does not print on those
+runs.
 
 ## Configure
 
@@ -167,11 +176,20 @@ must equal `estate.model` byte-for-byte.
 
 ## Run
 
-Server side (the estate), once per session:
+Server side (the estate), once per session — the `GSJ_PINS_PATH` prefix
+is NOT optional under the shipped default (`thinking: "medium"`): the
+receiver resolves its pins once, at process start (CP-11b), and without
+the variable it holds the thinking-OFF reference and quarantines every
+thinking-on episode G6-only (§Thinking below):
 
 ```
-./.venv/bin/gsj-rollout serve --config config.yaml
+GSJ_PINS_PATH="$PWD/pins/thinking-on/pins.gsj.json" \
+  ./.venv/bin/gsj-rollout serve --config config.yaml
 ```
+
+(Running `thinking: "off"`? Drop the prefix — default resolution IS the
+off reference. A server-role host may equivalently point at the library
+checkout's `pins/thinking-on/pins.gsj.json`; the files are byte-equal.)
 
 Run it in the FOREGROUND first: it prints the rendered topology path and
 the two Polar commands to run beside it, and that print is python
@@ -211,7 +229,12 @@ expect ~20 minutes and ~90 GB for a 71-row 0.6B batch with long rows,
 during which the console is silent — and a
 `CUDACachingAllocator … memory allocation failed` WARNING mid-leg is
 the allocator retrying, not the crash it resembles (F-12/F-13's
-padded-width shape; the leg completed through it).
+padded-width shape; the leg completed through it). Those figures are a
+**thinking-off** batch: a thinking-on collection's rows run ~2× longer
+(max measured 26.5k ids, CP-28) and the flash-free branch materializes
+logits at padded width (F-13), so expect the ON-mode GPU leg to sit
+closer to the memory ceiling and retry more — unmeasured until CP-32
+(no thinking-on batch has crossed this leg yet).
 
 Two stores, one relationship (F-37): the receiver writes every ACCEPTED
 trace to `traces_dir` (the durable archive); `train.py --collect-only`
@@ -232,24 +255,120 @@ Engine downtime is about a minute. Drain in-flight episodes before
 syncing — the loop is safe serialized; overlapping collection with a
 sync is not yet instrumented (A-13).
 
+## Thinking — the two modes, what each costs, and the pins that must agree
+
+The harness has a thinking mode (`harness.thinking`; `--thinking`
+overrides it per run) and **this project ships it ON** (`"medium"`).
+Every run prints its mode on the first line (`[train] thinking: …`) so a
+log always says which mode produced it. Gate G6 is **per-mode pins
+data** (library ADR-0024): the mode and the resolved pins are two
+statements of one fact, and they must agree **on both legs** — the
+receiver (`gsj-rollout serve`) and this trainer process. train.py owns
+its own leg: it sets `GSJ_PINS_PATH` to `./pins/thinking-on/` before
+its first library import when the mode is on, and **refuses to run,
+saying why, when the resolved pins contradict the mode** — before any
+estate time is spent. The receiver's leg is yours: the serve command
+above carries the variable inline.
+
+**What it looks like when the pins are wrong** (so you recognize it,
+not debug it — either way it is the mode/pins disagreement failing
+closed by design, not a broken gate):
+
+- *train.py's leg* — normally unreachable: preflight refuses to start.
+  If a mismatch slips through anyway (a foreign pins file it could not
+  classify), every otherwise-healthy attempt is rejected with G6-only
+  findings (`G6:prompt_suffix_ne_tail_ids` on each) and `collect
+  total: 0/N`; train.py prints the interpretation under that exact
+  wipeout.
+- *the receiver's leg* — the likelier miss (a serve started without the
+  variable): train.py's own gate still passes, so `collect` looks
+  healthy and `collected/` fills — but the receiver quarantines its
+  copy of every episode, so the DURABLE archive is empty: `traces_dir`
+  holds nothing while `<traces_dir>/quarantine` fills with G6-only
+  findings. **Check this once after your first collect**; the cure is
+  restarting serve with the matching `GSJ_PINS_PATH` (pins resolve once
+  per process — CP-11b — so a restart is required, not optional).
+
+**on — the default.** Measured at library CP-28 (2026-08-14; 15
+episodes per mode, reference estate, Qwen3-0.6B, the golden task;
+`docs/polar/thinking/` in the library repo):
+
+- **wall clock**: median **21.1 s/episode** (15.1–44.7) vs 7.7 s off —
+  **~2.7×**. No pooled thinking-on collection has been measured yet:
+  the 2.7× is per-episode fact, so expect the default 72-attempt
+  collect — 6m37s when CP-26 measured it OFF — to run somewhere near
+  **15–20 minutes** (extrapolation, labelled as such; CP-32 measures
+  it). A slow collect is the mode working, not a malfunction.
+- **tokens**: response ids ~2× (median 7,136 vs 3,705). **Context**:
+  median 31% of the 32k window, max **81%** — at which one episode's
+  final completion came back empty (its deliverable was already
+  written; context pressure's first symptom, one episode short of the
+  wall). Zero `finish_reason: length` in either mode at this scale.
+- **what it buys**: deliverables written **8/15 vs 1/15**; cited
+  deliverables 3/15 vs 1/15; MCP retrieval successes 4.1 vs 2.5 per
+  episode. Tool use improves, not degrades. Reward is accordingly less
+  sparse than the off-mode band below.
+- **G6 in this mode** asserts template integrity plus the mode itself
+  (no turn opening carries the off signature) — **not**
+  thinking-suppression; thinking rides mask-1 sampled content, outside
+  any opening (ADR-0024; CP-30's live pair: one episode per mode
+  through the real receiver, both accepted on attempt 1).
+- **training**: a median **67% of trainable (mask-1) tokens are think
+  tokens** — under RLVR/GRPO that share of the gradient mass rides
+  reasoning; train.py prints this collection's own measured share at
+  reward attach. OPD: that is the point. SFT on the model's own
+  reasoning at 0.6B: don't (CP-28 §4 — derive a think submask from ids
+  151667/151668, or use a teacher).
+
+**off — the control.** Median 7.7 s/episode (3.6–11.3); pooled
+collection 71/72 in 6m37s (CP-26, 2026-08-13); context median 20% of
+32k, max 41%; deliverables 1/15; the reward band 1/27–1/112
+(CP-17/CP-21). When you want it: the A/B control against on (CP-32 runs
+both), wall-clock- or window-tight collection, or matching a pre-CP-31
+measurement — **every number in this repo dated before 2026-08-14 was
+measured off unless labelled**.
+
+**Running both modes takes exactly this**:
+
+1. one flag — `--thinking off` for the control leg (or edit the config;
+   the flag wins);
+2. one pins consideration — restart `gsj-rollout serve` per mode:
+   `GSJ_PINS_PATH` inline for on, absent for off (train.py's leg
+   follows the flag automatically);
+3. one directory per mode — `--out collected-on` / `--out
+   collected-off`. Never mix: the trainer-side gate re-runs at ingest
+   under the *current process's* pins, so grading a mixed directory
+   fails with G6-named findings on the foreign-mode half. Pass the same
+   `--thinking` to every stage that reads a given `--out`.
+
+Compare the two legs on their printed lines: `collect total:` (yield +
+wall), `reward distribution:` (nonzero count), and the think-share line
+(prints only over a thinking-on collection; its absence is itself the
+off-mode signature).
+
 ## What to expect — measured, so you don't debug a healthy system
 
 - **Qualification is NOT where the attrition is** — reward is. Under the
   relaxed standard this loop trains on, expect nearly every attempt to
   qualify: CP-17 measured 27/28 (2026-08-11), CP-26 measured **71/72 in
   under 7 minutes** with Polar pooling six episode containers against one
-  engine (2026-08-13) — a 98% yield is the healthy shape, not a broken
-  gate (F-18). The famous attrition numbers belong elsewhere: **19
-  attempts per qualifying episode** is the STRICT qualification standard
-  (CP-09′, not this loop), and CP-21's **112 attempts** (extended loudly
-  from a stated 28) were about the *reward*, not the pipeline, being
-  zero at 28 and 56. Attempts that come back COMPLETED-but-refused are
-  still normal, just rare here. The old "~36 episodes/hour" figure was a
-  serially-fed engine; pooled collection runs ~6× that.
+  engine (2026-08-13, **thinking-off**; the yield held 15/15 per leg in
+  CP-28's serial collections, both modes — the wall clock is what the
+  mode moves, §Thinking) — a 98% yield is the healthy shape, not a
+  broken gate (F-18). The famous attrition numbers belong elsewhere:
+  **19 attempts per qualifying episode** is the STRICT qualification
+  standard (CP-09′, not this loop), and CP-21's **112 attempts**
+  (extended loudly from a stated 28) were about the *reward*, not the
+  pipeline, being zero at 28 and 56. Attempts that come back
+  COMPLETED-but-refused are still normal, just rare here. The old "~36
+  episodes/hour" figure was a serially-fed engine; pooled collection
+  runs ~6× that (off-mode measurement; scale by ~2.7× for on).
 - **Reward is sparse at 0.6B, and the rate is not a stable constant**:
   one measured collection landed the citation reward 1 in 27, the next
   1 in 112 — CP-21's own conclusion is that the ~1/24 heuristic does not
-  hold. A batch too small to contain a nonzero reward trains on zeros;
+  hold. (Both figures are **thinking-off** collections; CP-28's
+  thinking-on leg landed 3/15 reward-earning vs 1/15 off — richer, still
+  sparse, still not a constant.) A batch too small to contain a nonzero reward trains on zeros;
   `train.py` prints one `reward=` line per body plus an aggregate
   `reward distribution: k/N nonzero` line (F-27, fixed CP-27) — and a
   `collect total:` line after collection — so you see it before the
@@ -266,18 +385,26 @@ sync is not yet instrumented (A-13).
   of-magnitude check, not a threshold — same order as 0.008 with a
   sub-percent share of positions over 0.21 is healthy; a 10× mean or
   positions-over-0.21 in the tens of percent means the snapshot is not
-  the engine's weights (re-check the revision, F-23).
+  the engine's weights (re-check the revision, F-23). One honesty rider
+  (F-43): every floor constant was measured on **thinking-off**
+  collections — no thinking-on batch has been replayed through this leg
+  yet, so under the shipped default read the printout with extra
+  suspicion in BOTH directions until CP-32 measures it.
 - **Singleton GRPO groups are dropped loudly** (F-10): a group of one has
   no baseline and verl hands back the raw reward as its "advantage".
 - **Entropy/KL are OFF** in this one-step shape — right for an audited
   step, wrong for a run: the measured post-sync distribution visibly
   narrowed (format-copying onset). Arm them in `loop.make_worker` before
   any multi-step schedule.
-- **Thinking stays off** (`harness.thinking: "off"`): gate G6 verifies
-  every assistant turn opens from the pinned no-think glue; a thinking-on
-  estate fails every episode by design until the gates are re-conceived.
-- Suites, if you check out the library repo: root 136, corpus 58,
-  mcp-service 89, vendored Polar 175 passed / 3 pre-existing failures.
+- **Thinking ships ON** (`harness.thinking: "medium"`) since library
+  CP-31 — the cost, the return, the per-mode G6 semantics, and the pins
+  coupling are §Thinking above. (The pre-CP-30 statement that used to
+  live here — "a thinking-on estate fails every episode by design" —
+  described the off-pins gate and stopped being true when G6 re-pinned
+  per mode, ADR-0024.)
+- Suites, if you check out the library repo: root 150 (since library
+  CP-30), corpus 58, mcp-service 89, vendored Polar 175 passed / 3
+  pre-existing failures.
 
 ## The bank
 

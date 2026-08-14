@@ -13,12 +13,15 @@ point of this repo as much as the code.
 
 - **`example_project/`** — **start here.** The consumer surface, built at
   library CP-25 for Phase D: the commented `config.yaml` a stranger
-  copies (six required values, everything else defaulted and documented),
-  the committed CP-24 `taskbank.parquet` with its rebuild script, a
-  230-line `train.py` (collect → convert → train → sync; the verl
-  machinery behind `verl_bridge/loop.py`), `install.sh` — the one install
-  command (library ADR-0023) — and `RUNBOOK.md`, the document to read
-  first.
+  edits in place (six required values, everything else defaulted and
+  documented), the committed CP-24 `taskbank.parquet` with its rebuild
+  script, a 500-line `train.py` (collect → convert → train → sync; the
+  verl machinery behind `verl_bridge/loop.py`), `install.sh` — the one
+  install command (library ADR-0023) — and `RUNBOOK.md`, the document to
+  read first. **Thinking ships ON** (`thinking: "medium"`, since library
+  CP-31); `--thinking off` collects the control, and the per-mode G6
+  pins the mode needs travel in `example_project/pins/` because the
+  wheel carries only the off set (F-40).
 - **`slime_bridge/`** — callback-shaped `SessionResult` → slime `Sample`
   (v0.3.0 surface), built at library CP-16 for the M4 evaluation. The
   library's ADR-0018 records why it lives here (the scope law: a bridge

@@ -1,0 +1,58 @@
+{
+  "format": "gsj-pins/1",
+  "derived_at": "CP-30 (2026-08-14), the per-mode re-pin (ADR-0024; evidence CP-28's 15-episode thinking-on collection)",
+  "host": "H200 estate, thinking-ON mode. Select via GSJ_PINS_PATH on BOTH law-6 legs; default resolution (checkout/packaged) stays the thinking-off reference. The six non-G6 approved sets are pins.gsj.json's, byte-equal, guarded by derive_pins.py.",
+  "mode": "thinking-on",
+  "pins": {
+    "tokenizer_hash": [
+      "949e1ec83f61520a25c75426edc4a43acc36f29a"
+    ],
+    "chat_template_hash": [
+      "1d944ff8f268b611abb296cdd24d0f51981eef1c8647ac321c3a0258f61eb6c9"
+    ],
+    "settings_hash": [
+      "dae8948524be8253e04c4174632477e0333adc0323e791a6e54ace3b31004d20"
+    ],
+    "tool_roster_hash": [
+      "a7a7956b4842b79f8b20448d43bc8225eebe6360c3d1d3979d41c6f9b9948e56"
+    ],
+    "system_prompt_hash": [
+      "f56e8a6e9ea9dd1c19be89c6754a4e8d3d1c0f89e04bb21f60237aa2e8837df4"
+    ],
+    "skill_card_hash": [
+      "d41ec6eaffbb940ec48191b50513ddfa44a3669c242a8df519f94127a20f449a",
+      "15ae463eb20428b2daef45df00600f6bf7df4f7a6622e377310127a786b17f88"
+    ],
+    "g6_expected_tail": [
+      "<|im_start|>assistant\n"
+    ],
+    "g6_expected_tail_ids": [
+      [
+        151644,
+        77091,
+        198
+      ]
+    ]
+  },
+  "provenance": {
+    "g6_expected_tail": {
+      "algo": "verbatim_text",
+      "artifacts": [
+        "pins/thinking-on/g6_tail.captured.txt (22 bytes)"
+      ],
+      "notes": "G6, thinking-ON: under the symmetric served template a thinking-on turn opening ends at the bare generation prompt <|im_start|>assistant\\n — the byte-prefix (22 of 41) of the thinking-off empty-think tail. Measured at CP-28 on all 41 turn openings of 15 real thinking-on episodes (docs/polar/thinking/); the empty-think tail appeared zero times.",
+      "mac_specific": false
+    },
+    "g6_expected_tail_ids": {
+      "algo": "token_ids",
+      "artifacts": [
+        "pins/thinking-on/g6_tail.captured.txt tokenized by the served tokenizer (Qwen/Qwen3-0.6B @ c1899de289a04d12100db370d81485cdf75e47ca, add_special_tokens=false)"
+      ],
+      "notes": "The first three ids of the off tail: <|im_start|>=151644, 'assistant'=77091, '\\n'=198. NOT an endswith-suffix of the 7-id off tail (which ends [271, 151668, 271]), so pinning it ALONE keeps G6 mode-asserting in both directions (ADR-0024): an off opening fails this pin exactly as an on opening fails the off pin (the CP-28 measurement). derive_pins.py re-verifies under the served tokenizer whenever transformers is importable, and always verifies the prefix relation and the non-G6 set equality at desk.",
+      "mac_specific": false
+    },
+    "non_g6_sets": {
+      "notes": "Inherited byte-equal from pins/pins.gsj.json — CP-28 measured every one of them unmoved by the thinking flag (same engine process served both legs; G2 30/30 episodes, G4 sha unmoved, settings/roster/skill/tokenizer untouched). derive_pins.py fails the walk if the two files ever diverge on these six keys."
+    }
+  }
+}

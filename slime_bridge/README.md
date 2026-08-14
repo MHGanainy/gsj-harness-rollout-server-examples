@@ -1,5 +1,12 @@
 # slime_bridge
 
+> **Mode note (library CP-31)**: every number in this document was
+> measured **thinking-off** (the only mode before library CP-30), and
+> the packaged-pins sentence below predates per-mode pins — the wheel's
+> pins are the *off-mode* reference only. The shipped default in
+> `example_project/` is now ON; current per-mode expectations and the
+> pins coupling live in `example_project/RUNBOOK.md` §Thinking (F-42).
+
 Callback-shaped `SessionResult` → slime `Sample` (v0.3.0), the trainer's
 side of `gsj-harness-rollout-server`'s M4. What it is and isn't:
 [`decisions/ADR-0001`](decisions/ADR-0001-what-the-bridge-is-and-isnt.md).

@@ -53,21 +53,56 @@ runtime:
   #                           # ran; build your own to override — the
   #                           # taskbank pins it per row
 
-# harness:                    # omissible wholesale — all defaults
-#   tools_allowlist: [read, ls, grep, find, write, edit, bash,
-#                     mcp_gsj_search_case, mcp_gsj_search_decisions,
-#                     mcp_gsj_case_status, mcp_gsj_decision_stats]
-#                             # the G3-pinned roster: any OTHER roster fails
-#                             # G3:tool_roster_hash_not_approved until you re-pin
-#   artifacts_dir: /tmp/gsj-artifacts   # host-side; deliverables land here and
-#                             # the reward grader reads them — point somewhere
-#                             # durable for real runs
-#   workdir: /workspace       # in-image; G2's approved hash assumes it —
-#                             # changing it means a re-pin walk
-#   context_window: 32768     # must match the engine's --max-model-len
-#   max_tokens: 8192          # per-completion cap
-#   thinking: "off"           # not a knob: thinking-on needs a symmetric served
-#                             # template and re-conceiving gate G6 (A-22)
+harness:                      # every key below except `thinking` is a
+                              # commented default — uncomment in place
+  # This project ships thinking ON. Measured at library CP-28
+  # (2026-08-14, 15 episodes per mode, reference estate, Qwen3-0.6B):
+  # the mode costs ~2.7× wall clock per episode (median 7.7 s → 21.1 s)
+  # and ~2× response tokens, and buys deliverable completion 1/15 → 8/15,
+  # MCP retrieval successes 2.5 → 4.1 per episode, and reward-earning
+  # episodes 1/15 → 3/15. `"off"` is the CONTROL — flip it (or pass
+  # `--thinking off` to train.py) for control runs and A/B comparison;
+  # every pre-CP-31 number in this repo's docs was measured off unless
+  # labelled. Every non-off pi level (minimal|low|medium|high|xhigh|max)
+  # is wire-equivalent under qwen-chat-template (CP-28); "medium" is the
+  # stated convention, not a strength setting.
+  #
+  # KEEP THE QUOTES. Bare `thinking: on` / `thinking: off` are YAML 1.1
+  # BOOLEANS, not strings: the validator maps bare `off` back to "off"
+  # for you, but bare `on` becomes the string "on" — which is NOT a pi
+  # level and is rejected at load by name (pi would silently clamp it to
+  # off and collect a control wearing the measurement's label — CP-28).
+  #
+  # THE PINS COUPLING (gate G6 is per-mode pins data, library ADR-0024):
+  # any non-off level needs GSJ_PINS_PATH pointing at
+  # ./pins/thinking-on/pins.gsj.json on BOTH legs, or every episode is
+  # quarantined G6-only. train.py handles its own leg (it sets the
+  # variable from this value before its first gsj_rollout import, and
+  # refuses to run when the resolved pins contradict the mode); the
+  # RECEIVER is a separate process — start it with the variable inline,
+  # exactly as the RUNBOOK's serve command shows. Mode off: set nothing;
+  # default resolution IS the off reference.
+  thinking: "medium"
+  # tools_allowlist: [read, ls, grep, find, write, edit, bash,
+  #                   mcp_gsj_search_case, mcp_gsj_search_decisions,
+  #                   mcp_gsj_case_status, mcp_gsj_decision_stats]
+  #                           # the G3-pinned roster: any OTHER roster fails
+  #                           # G3:tool_roster_hash_not_approved until you re-pin
+  # artifacts_dir: /tmp/gsj-artifacts   # host-side; deliverables land here and
+  #                           # the reward grader reads them — point somewhere
+  #                           # durable for real runs
+  # workdir: /workspace       # in-image; G2's approved hash assumes it —
+  #                           # changing it means a re-pin walk
+  # context_window: 32768     # must match the engine's --max-model-len.
+  #                           # Thinking-on spends real window: CP-28 measured
+  #                           # median 31% of 32k, max 81% — where one
+  #                           # episode's final completion came back empty
+  #                           # (context pressure's first symptom); off ran
+  #                           # median 20%, max 41%
+  # max_tokens: 8192          # per-completion cap. Under thinking-on the
+  #                           # cap bounds think + answer TOGETHER; CP-28
+  #                           # measured zero length-truncations at this
+  #                           # cap in either mode (n=15/leg)
 
 # builder:                    # omissible wholesale — all defaults
 #   end_of_turn_token_id: 151645   # <|im_end|> under the Qwen3 tokenizer
