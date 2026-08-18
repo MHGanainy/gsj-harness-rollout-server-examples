@@ -68,23 +68,25 @@ harness:                      # every key below except `thinking` is a
   # stated convention, not a strength setting.
   #
   # KEEP THE QUOTES. Bare `thinking: on` / `thinking: off` are YAML 1.1
-  # BOOLEANS, not strings: the validator maps bare `off` (false) back
-  # to "off" for you, but bare `on` arrives as boolean true and is
-  # REFUSED as a pydantic type error naming harness.thinking
-  # (`input_value=True, input_type=bool` — a traceback, not a sentence;
-  # measured at CP-32, F-50). The quoted form never meets any of this.
-  # Why the refusal is right: pi would silently clamp an unknown value
-  # to off and collect a control wearing the measurement's label (CP-28).
+  # BOOLEANS, not strings: the validator maps bare `off` (false) back to
+  # "off" for you, and since library 0.1.1 bare `on` is refused BY NAME —
+  # "'on' is not a pi thinking level — use one of off|minimal|…|max" (the
+  # fix landed at library CP-30; 0.1.0, which CP-32 measured as F-50's
+  # raw pydantic type traceback, predates it). The quoted form never
+  # meets any of this. Why the refusal is right: pi would silently clamp
+  # an unknown value to off and collect a control wearing the
+  # measurement's label (CP-28).
   #
   # THE PINS COUPLING (gate G6 is per-mode pins data, library ADR-0024):
-  # any non-off level needs GSJ_PINS_PATH pointing at
-  # ./pins/thinking-on/pins.gsj.json on BOTH legs, or every episode is
-  # quarantined G6-only. train.py handles its own leg (it sets the
-  # variable from this value before its first gsj_rollout import, and
-  # refuses to run when the resolved pins contradict the mode); the
-  # RECEIVER is a separate process — start it with the variable inline,
-  # exactly as the RUNBOOK's serve command shows. Mode off: set nothing;
-  # default resolution IS the off reference.
+  # any non-off level needs GSJ_PINS_PATH pointing at the wheel's
+  # packaged thinking-on set (site-packages/gsj_rollout/pins/thinking-on/
+  # pins.gsj.json, carried since library 0.1.1 — CP-33) on BOTH legs, or
+  # every episode is quarantined G6-only. train.py handles its own leg
+  # (it locates the packaged file and sets the variable before its first
+  # gsj_rollout import, refusing to run when the resolved pins contradict
+  # the mode); the RECEIVER is a separate process — start it with the
+  # variable inline, exactly as the RUNBOOK's serve command shows. Mode
+  # off: set nothing; default resolution IS the off reference.
   thinking: "medium"
   # tools_allowlist: [read, ls, grep, find, write, edit, bash,
   #                   mcp_gsj_search_case, mcp_gsj_search_decisions,

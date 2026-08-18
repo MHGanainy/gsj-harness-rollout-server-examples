@@ -20,8 +20,9 @@ point of this repo as much as the code.
   install command (library ADR-0023) — and `RUNBOOK.md`, the document to
   read first. **Thinking ships ON** (`thinking: "medium"`, since library
   CP-31); `--thinking off` collects the control, and the per-mode G6
-  pins the mode needs travel in `example_project/pins/` because the
-  wheel carries only the off set (F-40).
+  pins the mode needs ship IN the library wheel (both mode files since
+  0.1.1 — F-40 retired at library CP-33; the interim
+  `example_project/pins/` copy is gone).
 - **`slime_bridge/`** — callback-shaped `SessionResult` → slime `Sample`
   (v0.3.0 surface), built at library CP-16 for the M4 evaluation. The
   library's ADR-0018 records why it lives here (the scope law: a bridge

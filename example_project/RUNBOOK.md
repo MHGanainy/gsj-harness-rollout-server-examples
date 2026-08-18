@@ -124,9 +124,11 @@ Three traps, measured (F-16, F-28, F-30):
   Bare `python` does not even exist on a stock Ubuntu box.
 
 **Foreign estate? Set `GSJ_PINS_PATH`.** The wheel ships the *reference
-estate's thinking-OFF* approved sets (tool roster, system prompt,
-settings hashes — and gate G6's off-mode tail; the wheel carries NO
-thinking-on pins, F-40). On your own estate every hash gate will fail
+estate's* approved sets (tool roster, system prompt, settings hashes —
+and gate G6's per-mode tail, BOTH mode files since library 0.1.1: the
+off reference at default resolution, the thinking-on set at
+`gsj_rollout/pins/thinking-on/pins.gsj.json` — F-40 retired, CP-33).
+On your own estate every hash gate will fail
 `*_not_approved` — loudly, by design — until you derive your own pins
 and export `GSJ_PINS_PATH` before the first import of
 `gsj_rollout.checks` (the resolution is once-per-process, fixed at
@@ -183,11 +185,15 @@ the variable it holds the thinking-OFF reference and quarantines every
 thinking-on episode G6-only (§Thinking below):
 
 ```
-GSJ_PINS_PATH="$PWD/pins/thinking-on/pins.gsj.json" \
+GSJ_PINS_PATH="$(./.venv/bin/python -c "import importlib.util as u; \
+print(u.find_spec('gsj_rollout').submodule_search_locations[0] \
++ '/pins/thinking-on/pins.gsj.json')")" \
   ./.venv/bin/gsj-rollout serve --config config.yaml
 ```
 
-(Running `thinking: "off"`? Drop the prefix — default resolution IS the
+(The path is the WHEEL's packaged thinking-on set — carried since library
+0.1.1, CP-33; the `example_project/pins/` copy it replaces is retired.
+Running `thinking: "off"`? Drop the prefix — default resolution IS the
 off reference. A server-role host may equivalently point at the library
 checkout's `pins/thinking-on/pins.gsj.json`; the files are byte-equal.)
 
@@ -196,17 +202,18 @@ the two Polar commands to run beside it, and that print is python
 stdout — under `nohup … > log` it sits block-buffered and the log shows
 nothing while the receiver listens silently (F-20). Read the commands,
 then background it with `PYTHONUNBUFFERED=1` if you want the log live.
-The two printed Polar commands resolve `vendor/polar/.venv/bin/polar`
-against the INSTALLED library — under a PyPI install that is an
-absolute path into site-packages, and it DOES NOT EXIST (no wheel
-ships `vendor/`; measured at CP-32, F-45 — running the command as
-printed dies "No such file or directory"). Keep the printed
-`PYTHONPATH=` prefix exactly, but take the binary from the sibling
-LIBRARY CHECKOUT instead: run both commands from the library repo root
-with `vendor/polar/.venv/bin/polar` substituted for the printed
-absolute path (that is where F-21's venv was provisioned). The gateway
-one takes your operator's secret in the `GSJ_MCP_TOKEN_SECRET=<secret>`
-slot.
+Since library 0.1.1 (CP-33, F-45 fixed) the printout says which install
+shape it is: when the resolved `vendor/polar/.venv/bin/polar` exists (a
+library checkout with the venv provisioned) the two commands print
+runnable as-is; when it does not, a `NOTE:` names the case — an
+installed wheel (no wheel ships `vendor/`; clone the library repo) or an
+unbuilt venv (provision per `vendor/REVENDOR.md`) — and the commands
+print with `<checkout>` placeholders to substitute. On 0.1.0 the
+commands printed a site-packages path that DOES NOT EXIST (measured at
+CP-32 — ENOENT as printed): keep the `PYTHONPATH=` prefix, take the
+binary from the sibling library checkout. The gateway command takes your
+operator's secret in the `GSJ_MCP_TOKEN_SECRET=<secret>` slot either
+way.
 
 Trainer side, from this directory (`./.venv/bin/python`, or activate).
 (train.py line-buffers its own prints since CP-32, so a backgrounded
@@ -277,7 +284,8 @@ log always says which mode produced it. Gate G6 is **per-mode pins
 data** (library ADR-0024): the mode and the resolved pins are two
 statements of one fact, and they must agree **on both legs** — the
 receiver (`gsj-rollout serve`) and this trainer process. train.py owns
-its own leg: it sets `GSJ_PINS_PATH` to `./pins/thinking-on/` before
+its own leg: it sets `GSJ_PINS_PATH` to the wheel's packaged
+thinking-on set (library CP-33; the `./pins/` copy is retired) before
 its first library import when the mode is on, and **refuses to run,
 saying why, when the resolved pins contradict the mode** — before any
 estate time is spent. The receiver's leg is yours: the serve command
@@ -321,9 +329,14 @@ episodes per mode, reference estate, Qwen3-0.6B, the golden task;
   CP-32 (2026-08-14, 72 ON attempts) measured **7/72 episodes ending
   `finish_reason: length`**, max merged row 32,645 of the 32,768
   window — and every one of them still QUALIFIED. Qualification does
-  not screen length-terminated episodes (F-47): they enter the
-  training set silently, so check the printed batch and your own
-  merged-ids distribution before trusting a long-context collection.
+  not screen length-terminated episodes BY DESIGN (F-47 → library
+  ADR-0025, CP-33: a length-terminated episode is a real trajectory;
+  screening would silently discard it, so every collection surface
+  counts it instead): train.py prints `length-terminated: K/N` at
+  collect AND at grade, the bridge labels the rows TRUNCATED, and
+  dropping them is your one-line policy if your recipe wants a hard
+  context wall. Check the printed counts and your own merged-ids
+  distribution before trusting a long-context collection.
 - **what it buys**: deliverables written **8/15 vs 1/15**; cited
   deliverables 3/15 vs 1/15; MCP retrieval successes 4.1 vs 2.5 per
   episode. Tool use improves, not degrades. Reward is accordingly less
@@ -365,11 +378,13 @@ measured off unless labelled**.
    (train.py names the mode/pins hypothesis on that assert since
    CP-32). If you see that assert, your `--thinking` does not match
    the directory you are grading. Pass the same `--thinking` to every
-   stage that reads a given `--out`. And note the RECEIVER's archive
-   is not per-mode (F-48): across a serve restart both modes' accepted
-   traces land in ONE `traces_dir`, distinguishable only by content —
-   point each mode at its own `traces_dir` (edit the config between
-   legs) if you will ever re-grade from the archive.
+   stage that reads a given `--out`. And the RECEIVER's archive: since
+   library 0.1.1 (CP-33, F-48) every archived file carries the serving
+   pins-mode in its name (`<session_id>.thinking-on.json` /
+   `.thinking-off.json`), so a restart-mixed `traces_dir` stays
+   attributable; per-mode `traces_dir` values (edit the config between
+   legs) remain the cleaner discipline for re-grading. On 0.1.0
+   archives the modes are distinguishable only by content.
 
 Compare the two legs on their printed lines: `collect total:` (yield +
 wall), `reward distribution:` (nonzero count), and the think-share line

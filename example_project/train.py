@@ -43,7 +43,22 @@ RolloutClient = partition_session_results = None
 load_config = render_task_request = None
 
 _PI_LEVELS = ("off", "minimal", "low", "medium", "high", "xhigh", "max")
-THINKING_ON_PINS = _HERE / "pins" / "thinking-on" / "pins.gsj.json"
+
+
+def _packaged_on_pins():
+    """The installed wheel's thinking-on pins (library CP-33, wishlist 28 —
+    the interim ./pins/ copy retired with it), located WITHOUT importing
+    gsj_rollout: resolution happens once at first import (CP-11b), so the
+    path must be known before any import runs. None = not packaged (a
+    pre-0.1.1 install)."""
+    import importlib.util
+    spec = importlib.util.find_spec("gsj_rollout")
+    if spec is None or not spec.submodule_search_locations:
+        return None
+    path = (Path(list(spec.submodule_search_locations)[0])
+            / "pins" / "thinking-on" / "pins.gsj.json")
+    return path if path.exists() else None
+
 # The two reference G6 tails (library ADR-0024; token ids under the served
 # Qwen3 tokenizer). Used only to CLASSIFY the resolved pins in words —
 # the gate itself is the library's, unchanged.
@@ -130,20 +145,21 @@ def _pins_preflight(level: str, source: str) -> None:
     env = os.environ.get("GSJ_PINS_PATH")
 
     if env is None and thinking_on:
-        if not THINKING_ON_PINS.exists():
+        on_pins = _packaged_on_pins()
+        if on_pins is None:
             sys.exit(
-                f"train.py: thinking is {level!r} (ON) but the shipped "
-                f"thinking-on pins are missing at {THINKING_ON_PINS} — "
-                "default pins resolution means thinking-OFF, so every "
-                "episode would be quarantined G6-only. This file ships with "
-                "the examples repo (move the whole repo, F-32); it is "
-                "byte-equal to the library repo's "
-                "pins/thinking-on/pins.gsj.json — restore either and retry, "
-                "or run the off control: --thinking off")
-        os.environ["GSJ_PINS_PATH"] = str(THINKING_ON_PINS)
-        print(f"[train] pins: GSJ_PINS_PATH={THINKING_ON_PINS} (set by "
-              "train.py for this process — the RECEIVER is a separate "
-              "process and needs the same variable; RUNBOOK §Run)")
+                f"train.py: thinking is {level!r} (ON) but the installed "
+                "gsj-harness-rollout-server packages no thinking-on pins — "
+                "default resolution means thinking-OFF, so every episode "
+                "would be quarantined G6-only. The wheel carries both mode "
+                "files since 0.1.1 (library CP-33, wishlist 28): "
+                "pip install -U gsj-harness-rollout-server and retry, or "
+                "run the off control: --thinking off")
+        os.environ["GSJ_PINS_PATH"] = str(on_pins)
+        print(f"[train] pins: GSJ_PINS_PATH={on_pins} (the wheel's packaged "
+              "thinking-on set, library CP-33; set by train.py for this "
+              "process — the RECEIVER is a separate process and needs the "
+              "same variable; RUNBOOK §Run)")
         return
 
     if env is None:
@@ -152,9 +168,9 @@ def _pins_preflight(level: str, source: str) -> None:
     kind = _classify_pins(Path(env))
     if kind == "unreadable":
         sys.exit(f"train.py: GSJ_PINS_PATH={env} is not a readable pins "
-                 "file — fix or unset it (unset + the shipped default = "
-                 "thinking-on via ./pins/thinking-on/, off via the "
-                 "library's reference pins)")
+                 "file — fix or unset it (unset = the wheel's packaged "
+                 "pins: its thinking-on file when the mode is on, the "
+                 "off reference otherwise)")
     if thinking_on and kind == "off":
         sys.exit(
             f"train.py: thinking is {level!r} (ON) but GSJ_PINS_PATH={env} "
@@ -162,8 +178,8 @@ def _pins_preflight(level: str, source: str) -> None:
             "would be quarantined G6-only (G6:prompt_suffix_ne_tail_ids on "
             "each) and the estate's time spent for nothing. The mode and "
             "the pins are two statements of one fact (library ADR-0024). "
-            "Cure: unset GSJ_PINS_PATH (train.py then selects "
-            "./pins/thinking-on/pins.gsj.json itself) — and start "
+            "Cure: unset GSJ_PINS_PATH (train.py then selects the wheel's "
+            "packaged thinking-on set itself) — and start "
             "`gsj-rollout serve` with the thinking-on pins too, both law-6 "
             "legs. For the off control instead: --thinking off")
     if not thinking_on and kind == "on":
@@ -202,30 +218,6 @@ def _heavy_imports() -> None:
     load_config, render_task_request = _lc, _rtr
 
 
-def _warn_if_shipped_pins_drifted() -> None:
-    """Best-effort (never fatal): the shipped thinking-on copy's six non-G6
-    approved sets must equal the installed library's off reference (the
-    library's derive_pins.py guards its own pair; nothing guards THIS
-    copy). A mismatch means the wheel re-pinned past this repo — the
-    stranger-visible symptom would be *_not_approved on hash gates."""
-    try:
-        from gsj_rollout import checks
-        reference = (checks.CHECKOUT_PINS if checks.CHECKOUT_PINS.exists()
-                     else checks.PACKAGED_PINS)
-        ours = json.loads(THINKING_ON_PINS.read_text())["pins"]
-        theirs = json.loads(Path(reference).read_text())["pins"]
-        moved = [k for k in theirs
-                 if not k.startswith("g6_") and ours.get(k) != theirs[k]]
-        if moved:
-            print("[train] WARNING: the shipped pins/thinking-on/ copy has "
-                  f"drifted from the installed library's reference pins on "
-                  f"{', '.join(sorted(moved))} — the library re-pinned past "
-                  "this repo's copy (pins/README.md). Refresh the copy from "
-                  "the library repo, or expect *_not_approved quarantines")
-    except Exception:
-        pass
-
-
 def bank_rows(path: Path) -> list[dict]:
     """The flat ADR-0022 rows, read with pyarrow directly — every column is
     the task triple, a `render_task_request` argument, or `sandbox_image`
@@ -255,7 +247,7 @@ def collect(cfg, rows: list[dict], out: Path, episodes: int, timeout: float) -> 
     client = RolloutClient(cfg.polar.rollout.base_url)
     tasks = []
     total_ok = total_rejected = 0
-    g6_only_rejects = 0
+    g6_only_rejects = length_terminated = 0
     for row in rows:
         # The row's image pin (ADR-0022): the bank means what it meant only
         # under the image it was built for. A drifted config collects
@@ -286,6 +278,9 @@ def collect(cfg, rows: list[dict], out: Path, episodes: int, timeout: float) -> 
             body_path = out / f"{result['session_id']}.json"
             body_path.write_text(json.dumps(
                 {**result, "gsj_uid": row_uid(row)}))     # remember the group
+            if any(t.get("finish_reason") == "length"
+                   for t in (result.get("trajectory") or {}).get("traces") or []):
+                length_terminated += 1
         print(f"[train] {row_uid(row)}: {len(accepted)}/{episodes} attempts "
               f"qualified -> {out}")
         total_ok += len(accepted)
@@ -294,6 +289,11 @@ def collect(cfg, rows: list[dict], out: Path, episodes: int, timeout: float) -> 
     print(f"[train] collect total: {total_ok}/{total_ok + total_rejected} "
           f"terminal attempts qualified across {len(tasks)} rows "
           f"({total_rejected} rejected/quarantined client-side) -> {out}")
+    # ADR-0025 (F-47): tail finish_reason=length qualifies BY DESIGN — 7/72
+    # at CP-32 entered the batch silently. The count makes the wall visible.
+    print(f"[train] length-terminated: {length_terminated}/{total_ok} accepted "
+          "episodes ended finish_reason=length — qualified by design; the "
+          "bridge labels them TRUNCATED at ingest (library ADR-0025)")
     # F-51 (CP-32): the counts above are THIS process's verdicts only. In
     # the receiver-leg pins mismatch (§Thinking) this line reads healthy
     # while the durable archive receives nothing.
@@ -342,10 +342,14 @@ def grade_and_ingest(cfg, out: Path) -> list:
     page_counts = cfg.user.get("page_counts", {})         # ours, via `user:`
     records = []
     rewards = []
+    n_length = 0
     bodies = sorted(out.glob("*.json"))
     assert bodies, f"{out} holds no collected bodies — run --collect-only first"
     for path in bodies:
         body = json.loads(path.read_text())
+        if any(t.get("finish_reason") == "length"
+               for t in (body.get("trajectory") or {}).get("traces") or []):
+            n_length += 1
         uid = body.pop("gsj_uid")
         case_id = body["trajectory"]["traces"][0]["metadata"]["case_id"]
         cutoff = int(body["trajectory"]["traces"][0]["metadata"]["timestep"])
@@ -370,6 +374,14 @@ def grade_and_ingest(cfg, out: Path) -> list:
     print(f"[train] reward distribution: {nonzero}/{len(rewards)} nonzero, "
           f"mean={sum(rewards) / len(rewards):.4f}, max={max(rewards):.3f}")
 
+    # ADR-0025 (F-47): the bridge labels tail-length TRUNCATED (trainable);
+    # aggregate it at grade too, so the wall is visible where the batch is
+    # assembled — dropping them here is the consumer's one-line policy.
+    n_trunc = sum(1 for r in records if r.status == "TRUNCATED")
+    print(f"[train] length-terminated: {n_length}/{len(bodies)} bodies ended "
+          f"finish_reason=length; {n_trunc}/{len(records)} ingested rows "
+          "carry status=TRUNCATED — trainable by design (library ADR-0025)")
+
     # CP-31, the trainability fact met where the reward is attached: in a
     # thinking-on collection the reward lands on ALL mask-1 tokens, and
     # most of them are reasoning (CP-28 measured median 67%).
@@ -385,7 +397,16 @@ def grade_and_ingest(cfg, out: Path) -> list:
     # A collection pre-filtered to qualifying episodes must have zero
     # masked rows — a masked row's 0.0 reward would still enter its GRPO
     # group's statistics. Inspect before training, never train through it.
-    n_masked = sum(1 for r in records if not r.trainable)
+    masked = [r for r in records if not r.trainable]
+    if masked:
+        # F-49 (row 30): the G6 re-check at ingest masks, it does not name —
+        # say the reasons in words before the assert below turns them fatal.
+        from collections import Counter
+        reasons = Counter(("; ".join(r.findings) or r.masked_reason or r.status)
+                          for r in masked)
+        print("[train] masked rows by reason: " + "; ".join(
+            f"{reason!r} x{count}" for reason, count in reasons.most_common()))
+    n_masked = len(masked)
     assert n_masked == 0, (
         f"{n_masked}/{len(records)} masked rows in a qualifying collection"
         + (" — ALL rows masked is the mode/pins disagreement at ingest "
@@ -432,12 +453,7 @@ def main() -> None:
               "off (CP-28, 2026-08-14; median episode 7.7s -> 21.1s) — a "
               "slow collect is the mode working, not a malfunction; "
               "--thinking off collects the control")
-        _warn_after = True
-    else:
-        _warn_after = False
     _heavy_imports()
-    if _warn_after:
-        _warn_if_shipped_pins_drifted()
 
     cfg = load_config(args.config)
     if args.thinking is not None:
