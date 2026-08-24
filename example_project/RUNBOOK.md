@@ -14,7 +14,8 @@ F-14 is retired and what remains operator-held is the estate knowledge
 - **This repo**: `git clone
   https://github.com/MHGanainy/gsj-harness-rollout-server-examples`.
   The trainer role needs nothing else checked out — install.sh installs
-  the library from PyPI (`gsj-harness-rollout-server`, v0.1.0). The
+  the library from PyPI (`gsj-harness-rollout-server` — 0.1.2 as of
+  library CP-34). The
   **server role** additionally needs the library repo
   (`git clone https://github.com/MHGanainy/gsj-harness-rollout-server`,
   current since CP-29) as this repo's SIBLING, for `vendor/polar/`; a
@@ -60,10 +61,15 @@ needs an *estate*: one host (the measured one is a single H200 box)
 running, together —
 
 - a **vLLM engine** serving the model with four pinned flags ("the four
-  legs"): `--chat-template` (the symmetric template), `--generation-config`,
-  `--enable-auto-tool-choice --tool-call-parser hermes`, and
-  `--max-model-len 32768` — without the tool-call flags every episode
-  errors "no completions";
+  legs"): `--chat-template`, `--generation-config`,
+  `--enable-auto-tool-choice --tool-call-parser …`, and
+  `--max-model-len 32768`. The leg NAMES are model-general; two of the
+  VALUES are family-bound (library CP-38, measured): the chat template
+  is the family's own, and so is the tool-call parser — `hermes` is the
+  Qwen3 value, and on a Llama estate it would leave every tool call as
+  unparsed text (`llama3_json` is that family's). Without the tool-call
+  flags every episode errors "no completions" (measured on the Qwen3
+  reference);
 - a **Forgejo git host** with one repo per case, `timestep-{T}` branches
   (built by the library repo's `corpus/` + `forgejo/` components);
 - the **MCP retrieval service** (`mcp-service/`), sharing an HMAC secret
@@ -94,7 +100,8 @@ bash install.sh
 ```
 
 That is: a python3.12 venv; the library (from PyPI —
-`gsj-harness-rollout-server>=0.1.0`, published at library CP-29 — or a
+`gsj-harness-rollout-server>=0.1.0`, a floor that resolves to 0.1.2 as
+of library CP-34; first published at CP-29 — or a
 sibling-checkout wheel when one exists, which takes precedence; the
 library installs FIRST so a failure lands before the multi-GB
 requirements download, keeping F-31's property); `requirements.txt` (the
@@ -450,8 +457,8 @@ off-mode signature).
   live here — "a thinking-on estate fails every episode by design" —
   described the off-pins gate and stopped being true when G6 re-pinned
   per mode, ADR-0024.)
-- Suites, if you check out the library repo: root 150 (since library
-  CP-30), corpus 58, mcp-service 89, vendored Polar 175 passed / 3
+- Suites, if you check out the library repo: root 161 (since library
+  CP-34), corpus 58, mcp-service 89, vendored Polar 175 passed / 3
   pre-existing failures.
 
 ## The bank
@@ -490,14 +497,24 @@ when a fix is only words). Still live, unfixed by any document:
 - the artifacts dir must be visible to the grading host (sync it if you
   collect and train on different machines) — stated here, enforced
   nowhere;
-- `python -m gsj_rollout.cli` exits 0 doing nothing — use the
-  `gsj-rollout` console script (library wishlist row 19, the CP-21
-  entry; measured again at CP-26: exit 0, zero bytes of output);
 - a card edit lands as quarantines until the estate re-pins (wishlist
   row 19, the CP-24 entry — the register records two rows under that
   number, its own numbering slip);
-- a wrong MCP secret or a `/v1`-suffixed `serving_base_url` or a
-  gateway port/`public_url` mismatch all pass `load_config` and fail
-  only at run time, as failed tool calls / a bare engine 404 / a
-  connection refused on a URL nothing listens on (library wishlist 21 —
-  the schema could catch the last two).
+- a wrong MCP secret still fails only at run time, mid-episode, as
+  failed tool calls — no verify-first probe exists (library wishlist
+  row 24);
+- a sibling library checkout with anything in `dist/` overrides the
+  PyPI install, and install.sh takes the FIRST wheel by name — an older
+  wheel sitting beside a newer one wins, so the developer path silently
+  runs a release behind (the reference checkout holds exactly that pair
+  today, 0.1.1 beside 0.1.2; library CP-41 removes the stale one — the
+  bridge run books deliberately glob the NEWEST instead). Keep `dist/`
+  to one wheel or delete it; install.sh itself prints the cure.
+
+Three bullets that used to live here stopped being true at library
+CP-27, and every released wheel ships the fixes (this list taught them
+as live until library CP-40): `python -m gsj_rollout.cli` has its
+`__main__` guard — the module form works and the silent exit-0 is gone
+(subprocess-tested) — and `load_config` now rejects both a
+`/v1`-suffixed `serving_base_url` and a gateway port/`public_url`
+mismatch at load, naming the field and the cure.

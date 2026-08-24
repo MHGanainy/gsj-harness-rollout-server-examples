@@ -11,6 +11,7 @@ unchanged; this directory is only what the *loop* needs around it.
 | `polar_pp.py` | path-loads Polar's **vendored** trajectory-aware LOO post-processor — no copy, no fork (its package is also named `slime_bridge`, hence by-path) |
 | `train_one_step.sh` | inside `slimerl/slime:v0.3.0`: HF → torch_dist convert, one optimizer step, torch_dist → HF export for the estate's engine |
 | `probe_sync.py` | the sync proof: teacher-forced logprobs on a fixed token stream, before vs after. CP-09′ measured the engine's replay path bit-deterministic (replay-vs-replay ≡ 0.000000), so any nonzero Δ is the weights |
+| `smoke.py` | the pre-flight inside the slime container (A-26's answer, first): real slime imports, the bridge builds a REAL `Sample` from a REAL collected body, the three assertions live, torch sees the GPU, the LOO post-processor path-loads — run before burning a training job on a surface mistake (absent from this table until library CP-40; it was always part of the CP-17 set) |
 
 ## Why this shape
 

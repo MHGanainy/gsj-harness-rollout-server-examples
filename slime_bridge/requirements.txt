@@ -1,11 +1,13 @@
 # The library arrives as a WHEEL — never a checkout. The CP-16 wheel or
 # later: earlier wheels do not ship the pins, and the trainer leg raises
 # PinsConfigurationError on first use (library ADR-0017, FINDINGS F-01).
-# No release channel exists yet; build it from the server repo:
-#   cd ../gsj-harness-rollout-server && python -m build --wheel
-# then install dist/gsj_harness_rollout_server-0.1.0-py3-none-any.whl.
-# When an index exists this line becomes:
-#   gsj-harness-rollout-server>=0.1.0
+# PyPI has served it since library CP-29 (0.1.2 as of CP-34):
+#   pip install 'gsj-harness-rollout-server>=0.1.0'
+# To run ahead of a release, build from the server repo and install the
+# wheel that build just produced (the filename tracks the version —
+# glob it, never hardcode it):
+#   cd ../../gsj-harness-rollout-server && python -m build --wheel
+#   pip install "$(ls -t dist/gsj_harness_rollout_server-*.whl | head -n1)"
 pytest
 
 # The training stack (slime v0.3.0 from THUDM git + router-tokens patch,

@@ -112,17 +112,25 @@ harness:                      # every key below except `thinking` is a
 # builder:                    # omissible wholesale — all defaults
 #   end_of_turn_token_id: 151645   # <|im_end|> under the Qwen3 tokenizer
 #                             # (A-15: always an explicit pin, never
-#                             # auto-detected). If you change estate.model,
-#                             # re-derive against the SERVED tokenizer:
-#                             #   tokenizer.convert_tokens_to_ids("<|im_end|>")
+#                             # auto-detected). The token NAME is
+#                             # family-bound — <|im_end|> exists only in
+#                             # ChatML-family vocabs. If you change
+#                             # estate.model, re-derive the family's OWN
+#                             # end-of-turn token against the SERVED
+#                             # tokenizer (library CP-38, per A-30):
+#                             # Llama 3.1's is <|eot_id|> -> 128009;
+#                             # convert_tokens_to_ids("<|im_end|>") has
+#                             # no answer outside ChatML.
 #   # generation_prompt_glue_ids: unset — needed only under an asymmetric
 #   #                           chat template (the measured estates serve a
 #   #                           symmetric one and merge natively)
 
 # checks:                     # omissible wholesale — all defaults
 #   zero_at_mask1_max_rate: 0.25   # bf16 engines emit exact-0.0 logprobs at
-#                             # mask==1 (measured 4-25% across estates and
-#                             # episodes); 0.25 admitted every clean episode
+#                             # mask==1 (measured 1.8-25% across families,
+#                             # estates and episodes — the low end is
+#                             # library CP-38's Llama leg); 0.25 admitted
+#                             # every clean episode
 #                             # and rejected a 26.6% repetitive loop — one
 #                             # degenerate loop measured 24.9%, so treat the
 #                             # boundary as load-bearing, not generous

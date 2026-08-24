@@ -15,7 +15,7 @@ point of this repo as much as the code.
   library CP-25 for Phase D: the commented `config.yaml` a stranger
   edits in place (six required values, everything else defaulted and
   documented), the committed CP-24 `taskbank.parquet` with its rebuild
-  script, a 500-line `train.py` (collect → convert → train → sync; the
+  script, a ~530-line `train.py` (collect → convert → train → sync; the
   verl machinery behind `verl_bridge/loop.py`), `install.sh` — the one
   install command (library ADR-0023) — and `RUNBOOK.md`, the document to
   read first. **Thinking ships ON** (`thinking: "medium"`, since library
@@ -51,7 +51,8 @@ point of this repo as much as the code.
 - The library arrives as a **wheel**, not a checkout — that is the point
   (the CP-16 packaging fix is what makes `checks` work from a wheel).
   Since library CP-29 the wheel comes from PyPI
-  (`pip install gsj-harness-rollout-server`, v0.1.0), so the trainer role
+  (`pip install gsj-harness-rollout-server` — 0.1.2 as of library
+  CP-34), so the trainer role
   holds ONE tree: this repo. A library checkout sitting beside this repo
   (with a built wheel in its `dist/`) overrides the index install — the
   developer path, `install.sh` documents it. The server role still runs

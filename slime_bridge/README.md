@@ -1,11 +1,14 @@
 # slime_bridge
 
-> **Mode note (library CP-31)**: every number in this document was
-> measured **thinking-off** (the only mode before library CP-30), and
-> the packaged-pins sentence below predates per-mode pins — the wheel's
-> pins are the *off-mode* reference only. The shipped default in
-> `example_project/` is now ON; current per-mode expectations and the
-> pins coupling live in `example_project/RUNBOOK.md` §Thinking (F-42).
+> **Mode note (library CP-31; pins half corrected at library CP-40)**:
+> every number in this document was measured **thinking-off** (the only
+> mode before library CP-30). Since library 0.1.1 (CP-33) the wheel
+> ships BOTH mode pin sets — `gsj_rollout/pins/` (off) and
+> `gsj_rollout/pins/thinking-on/` — exactly as F-40's retirement row
+> records; until CP-40 this rider claimed the off set only. The shipped
+> default in `example_project/` is now ON; current per-mode
+> expectations and the pins coupling live in
+> `example_project/RUNBOOK.md` §Thinking (F-42).
 
 Callback-shaped `SessionResult` → slime `Sample` (v0.3.0), the trainer's
 side of `gsj-harness-rollout-server`'s M4. What it is and isn't:
@@ -15,13 +18,19 @@ side of `gsj-harness-rollout-server`'s M4. What it is and isn't:
 ## Run book
 
 ```bash
-# 1. Build the library wheel (in the server repo — the CP-16 wheel or
-#    later; earlier wheels do not ship the pins and the trainer leg raises):
-#      cd ../gsj-harness-rollout-server && python -m build --wheel
-# 2. Here:
 python3 -m venv .venv
-./.venv/bin/pip install ../../gsj-harness-rollout-server/dist/gsj_harness_rollout_server-0.1.0-py3-none-any.whl pytest
+./.venv/bin/pip install 'gsj-harness-rollout-server>=0.1.0' pytest
 ./.venv/bin/python -m pytest -q          # 14 tests, fixture-driven, no GPU
+```
+
+Running ahead of a release: build the wheel in a SIBLING server
+checkout and install the newest one the build produced (the CP-16
+wheel or later; earlier wheels do not ship the pins and the trainer
+leg raises):
+
+```bash
+cd ../../gsj-harness-rollout-server && python -m build --wheel && cd -
+./.venv/bin/pip install "$(ls -t ../../gsj-harness-rollout-server/dist/gsj_harness_rollout_server-*.whl | head -n1)" pytest
 ```
 
 On an estate with its own approved sets, export `GSJ_PINS_PATH` before
