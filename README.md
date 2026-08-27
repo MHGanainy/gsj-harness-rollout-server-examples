@@ -187,7 +187,7 @@ the bring-your-own-estate walk, measured from nothing (cold `up` ~2.5
 min, 6–7 GB of images, ~20–40 s per episode against a host-local 0.6B —
 synthetic two-case corpus, you bring the engine; register rows
 F-54–F-69). The reference estate's full bring-up spans the library
-repo's `staging/` plus the predecessor repo's BRINGUP walk (F-33).
+repo's `estate/` plus the predecessor repo's BRINGUP walk (F-33).
 
 ## Projects
 

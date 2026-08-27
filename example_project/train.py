@@ -524,7 +524,7 @@ def main() -> None:
           "        script drives the estate over ssh via GSJ_VLLM_SSH_HOST,\n"
           "        default 'h200-admin' — run it where that alias resolves,\n"
           "        F-29; ~1 min engine downtime):\n"
-          f"        staging/serving/serve-updated.sh {hf_dir}\n"
+          f"        estate/serving/serve-updated.sh {hf_dir}\n"
           "        probe before/after: slime_bridge/cp17_loop/probe_sync.py\n"
           "        then collect again; drain in-flight episodes first (A-13)")
 

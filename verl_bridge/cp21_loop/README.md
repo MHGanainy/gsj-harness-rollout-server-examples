@@ -30,7 +30,7 @@ CP-17 (`../../slime_bridge/cp17_loop/`) analog for the second trainer.
   never the CP-18 anchor.
 - **Checkpoint reload, not NCCL** — verl's resharding syncs into engines
   verl owns; ours it does not own. Save → verl's own HF export →
-  `staging/serving/serve-updated.sh` (four legs unchanged).
+  `estate/serving/serve-updated.sh` (four legs unchanged).
 - **One uid group.** Every episode is the same golden triple;
   `uid="cp21-golden"` on every ingest. The bridge default (session id)
   would make every GRPO group a singleton = raw-reward advantages (F-10).
@@ -47,8 +47,8 @@ CP-17 (`../../slime_bridge/cp17_loop/`) analog for the second trainer.
 GSJ_COLLECTED_DIR=<dir with cp09prime fixture> GSJ_ARTIFACTS_ROOT=/tmp \
 GSJ_CUTOFF=12 GSJ_PAGE_COUNT=18 ./.venv/bin/python cp21_loop/train_one_step.py --dry-run
 
-# 1. collect (host, estate up) — see the library's staging/README.md
-gsj-rollout submit --config staging/rollout.h200.yaml --case case_0001 \
+# 1. collect (host, estate up) — see the library's estate/README.md
+gsj-rollout submit --config estate/rollout.h200.yaml --case case_0001 \
   --timestep 12 --prompt-file instruction.golden.txt --episodes N \
   --out ~/cp21/collect1
 

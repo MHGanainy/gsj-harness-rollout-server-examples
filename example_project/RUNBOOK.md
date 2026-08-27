@@ -71,8 +71,8 @@ running, together —
   flags every episode errors "no completions" (measured on the Qwen3
   reference);
 - a **Forgejo git host** with one repo per case, `timestep-{T}` branches
-  (built by the library repo's `corpus/` + `forgejo/` components);
-- the **MCP retrieval service** (`mcp-service/`), sharing an HMAC secret
+  (built by the library repo's `estate/corpus/` + `estate/forgejo/` components);
+- the **MCP retrieval service** (`estate/mcp-service/`), sharing an HMAC secret
   with the gateway (env var `GSJ_MCP_TOKEN_SECRET` on both);
 - **Polar's two processes** (rollout + gateway) from the library repo's
   `vendor/polar/.venv`. That venv does NOT exist in a fresh checkout
@@ -87,7 +87,7 @@ running, together —
   and quarantines bad traces with findings attached.
 
 Estate bring-up: THIS repo pair does not carry the full recipe. The
-library repo's `staging/README.md` holds only this estate's deltas and
+library repo's `estate/README.md` holds only this estate's deltas and
 the serving scripts; the authoritative cold-start walk
 (`staging/BRINGUP.md`) lives in a third repo, the predecessor
 `gsj-envloader`, which your operator holds (F-33). If someone already
@@ -270,7 +270,7 @@ working set the later stages read). Deleting `collected/` loses nothing
 the archive doesn't hold; deleting `traces_dir` loses the training data.
 
 Then the sync — **workstation-side, not estate-side** (F-29):
-`staging/serving/serve-updated.sh` drives the estate over ssh and
+`estate/serving/serve-updated.sh` drives the estate over ssh and
 assumes the alias in `GSJ_VLLM_SSH_HOST` (default `h200-admin`)
 resolves — that is the operator workstation, never the estate box
 itself, where it dies with a misleading `ssh: Could not resolve

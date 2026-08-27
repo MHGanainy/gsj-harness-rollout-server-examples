@@ -28,8 +28,8 @@ unchanged; this directory is only what the *loop* needs around it.
 ## Run
 
 ```bash
-# 1. collect (host, estate up) — see the library's staging/README.md
-gsj-rollout submit --config staging/rollout.h200.yaml --case case_0001 \
+# 1. collect (host, estate up) — see the library's estate/README.md
+gsj-rollout submit --config estate/rollout.h200.yaml --case case_0001 \
   --timestep 12 --prompt-file instruction.golden.txt --episodes N \
   --out ~/cp17/collected
 
