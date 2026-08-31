@@ -1,6 +1,6 @@
 # The library arrives as a WHEEL — never a checkout. The CP-16 wheel or
 # later (earlier wheels do not ship the pins; library ADR-0017, F-01).
-# PyPI serves it (0.1.2 as of library CP-34); to run ahead of a release:
+# PyPI serves it (0.1.4 as of library CP-63); to run ahead of a release:
 #   cd ../../gsj-harness-rollout-server && python -m build --wheel
 #   pip install "$(ls -t dist/gsj_harness_rollout_server-*.whl | head -n1)"
 #

@@ -7,7 +7,7 @@
 # published metadata); this script is where they become one command.
 #
 # Layout note (CP-26 F-15, revised at library CP-29): the library now
-# installs from PyPI (`gsj-harness-rollout-server` — 0.1.2 as of library CP-34), so
+# installs from PyPI (`gsj-harness-rollout-server` — 0.1.4 as of library CP-63), so
 # the trainer role needs NO library checkout. A SIBLING checkout —
 #     <parent>/gsj-harness-rollout-server/          (the library)
 #     <parent>/gsj-harness-rollout-server-examples/ (this repo)

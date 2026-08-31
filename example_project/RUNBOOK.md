@@ -14,8 +14,8 @@ F-14 is retired and what remains operator-held is the estate knowledge
 - **This repo**: `git clone
   https://github.com/MHGanainy/gsj-harness-rollout-server-examples`.
   The trainer role needs nothing else checked out — install.sh installs
-  the library from PyPI (`gsj-harness-rollout-server` — 0.1.2 as of
-  library CP-34). The
+  the library from PyPI (`gsj-harness-rollout-server` — 0.1.4 as of
+  library CP-63). The
   **server role** additionally needs the library repo
   (`git clone https://github.com/MHGanainy/gsj-harness-rollout-server`,
   current since CP-29) as this repo's SIBLING, for `vendor/polar/`; a
@@ -100,8 +100,8 @@ bash install.sh
 ```
 
 That is: a python3.12 venv; the library (from PyPI —
-`gsj-harness-rollout-server>=0.1.0`, a floor that resolves to 0.1.2 as
-of library CP-34; first published at CP-29 — or a
+`gsj-harness-rollout-server>=0.1.0`, a floor that resolves to 0.1.4 as
+of library CP-63; first published at CP-29 — or a
 sibling-checkout wheel when one exists, which takes precedence; the
 library installs FIRST so a failure lands before the multi-GB
 requirements download, keeping F-31's property); `requirements.txt` (the
@@ -457,8 +457,8 @@ off-mode signature).
   live here — "a thinking-on estate fails every episode by design" —
   described the off-pins gate and stopped being true when G6 re-pinned
   per mode, ADR-0024.)
-- Suites, if you check out the library repo: root 161 (since library
-  CP-34), corpus 58, mcp-service 89, vendored Polar 175 passed / 3
+- Suites, if you check out the library repo: root 169 (as of library
+  CP-65), corpus 67, mcp-service 107, vendored Polar 175 passed / 3
   pre-existing failures.
 
 ## The bank
@@ -506,9 +506,10 @@ when a fix is only words). Still live, unfixed by any document:
 - a sibling library checkout with anything in `dist/` overrides the
   PyPI install, and install.sh takes the FIRST wheel by name — an older
   wheel sitting beside a newer one wins, so the developer path silently
-  runs a release behind (the reference checkout holds exactly that pair
-  today, 0.1.1 beside 0.1.2; library CP-41 removes the stale one — the
-  bridge run books deliberately glob the NEWEST instead). Keep `dist/`
+  runs a release behind (the reference checkout held exactly that pair
+  when this trap was found, 0.1.1 beside 0.1.2, until library CP-41
+  removed the stale one — the bridge run books deliberately glob the
+  NEWEST instead). Keep `dist/`
   to one wheel or delete it; install.sh itself prints the cure.
 
 Three bullets that used to live here stopped being true at library

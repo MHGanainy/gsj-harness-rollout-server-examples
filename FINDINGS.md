@@ -62,11 +62,11 @@ not confirmed — the predecessor repo's rule: unverified is not false.
 | F-52 | FRICTION (process; cured mid-CP) | Both repos' CP-31 commits were UNPUSHED when CP-32 began — the "both repos are public" premise was one checkpoint stale, and a stranger cloning before the operator's push would have received the CP-29 surface (default OFF, no §Thinking, no pins copy). Cured by pushing before the stranger clone; recorded because nothing in the CP protocol makes "landed" imply "published" | no — process (a push step in every CP that ships consumer-visible files) | pushed at CP-32 before the measurement; the protocol sentence WAS added — library §8 rule 8 at CP-33 — then ignored three CPs running (CP-36–38 ended with the library unpushed; audit O1), and widened at CP-39: every repo the CP touched, the report states the push outcome either way, silence is non-compliance, and the rule now also lives in CLAUDE.md. This cell taught the sentence as still-unwritten until library CP-40 — the eighth lagging cell, caught by CP-40's own stranger re-read |
 | F-53 | COSMETIC (verified) | `staging/serving/serve-updated.sh:81` — `ssh "$SSH_HOST" bash -c '<newline>…'` word-joins so the remote `bash -c` receives an EMPTY first line as its whole script: it prints `bash: -c: option requires an argument` and the health-wait body then runs in the remote login shell BY ACCIDENT (it worked: the wait and the /v1/models check both executed; sync verified 0.040184 mean\|Δ\|, 7327/7609 positions moved). Works-by-luck in a frozen path | yes — `staging/` (frozen; one-line fix: `bash -s` or quote the whole remote command) | **FIXED at library CP-33** (wishlist 33): the health gate now rides `bash -s "$PORT"` with a heredoc — the script's own delivery idiom for the other two remote blocks — and a root-suite tripwire fails if `bash -c` returns |
 
-The series continues in the demo repo: **F-54–F-69** (F-54–F-68:
+The series continues in the demo repo: **F-54–F-78** (F-54–F-68:
 library CP-36, the first from-nothing stranger test, minted in the
-library's `docs/reports/CP-36.md`; F-69: library CP-40's orphan pass)
-live in
+library's `docs/reports/CP-36.md`; F-69: library CP-40's orphan pass;
+F-70–F-78: library CP-61's demo-on-the-wheel run) live in
 [gsj-rollout-demo/FINDINGS.md](https://github.com/MHGanainy/gsj-rollout-demo/blob/main/FINDINGS.md).
 The F-series is ONE register across both consumer repos: a new row,
 minted from either file, takes the next id after the highest
-**anywhere**. Next fresh id: **F-70**.
+**anywhere**. Next fresh id: **F-79**.

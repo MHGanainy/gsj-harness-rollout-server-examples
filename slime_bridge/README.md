@@ -20,7 +20,7 @@ side of `gsj-harness-rollout-server`'s M4. What it is and isn't:
 ```bash
 python3 -m venv .venv
 ./.venv/bin/pip install 'gsj-harness-rollout-server>=0.1.0' pytest
-./.venv/bin/python -m pytest -q          # 14 tests, fixture-driven, no GPU
+./.venv/bin/python -m pytest -q          # 19 tests, fixture-driven, no GPU
 ```
 
 Running ahead of a release: build the wheel in a SIBLING server

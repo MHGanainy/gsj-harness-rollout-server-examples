@@ -3,7 +3,7 @@
 #
 # The library itself arrives as a WHEEL (CP-16 or later — earlier wheels
 # do not ship the pins): gsj-harness-rollout-server>=0.1.0 from PyPI
-# (0.1.2 as of library CP-34; first published at library CP-29),
+# (0.1.4 as of library CP-63; first published at library CP-29),
 # installed by install.sh, not from this
 # file. A sibling-checkout build overrides it (the developer path):
 #   cd ../../gsj-harness-rollout-server && python -m build --wheel
