@@ -39,12 +39,14 @@ TEMPERATURE = 1.0      # raw-logprob convention: captured values are raw
 def load_reward_module(path: str | Path):
     """Load a reward module by EXPLICIT file path, never by import name.
 
-    Both bridge directories name their module `bridge.py`, and the vendored
-    Polar tree carries a package named `slime_bridge` — sys.path import
-    would shadow-load the wrong file silently (the CP-21 lesson). The
-    shipped grader is `slime_bridge/reward_cited_pages.py` (F-02's answer):
-    `grade_session(body, artifacts_root, *, cutoff, page_count)` sets
-    `trace["reward"]` in memory on every trace of the session.
+    The vendored Polar tree carries a package named `slime_bridge`, and
+    until CP-69 this repo carried a second `bridge.py` under its own
+    `slime_bridge/` — sys.path import would shadow-load the wrong file
+    silently (the CP-21 lesson). The shipped grader is
+    `verl_bridge/reward_cited_pages.py` (F-02's answer; lived in the slime
+    tree until CP-69 — tag `slime-cp17`): `grade_session(body,
+    artifacts_root, *, cutoff, page_count)` sets `trace["reward"]` in
+    memory on every trace of the session.
     """
     path = Path(path)
     spec = importlib.util.spec_from_file_location(path.stem, path)
@@ -199,13 +201,26 @@ def recompute_old_log_probs(data, worker, *, floor_mean: float,
     }
 
 
-def rewards_correction_advantages(data, n: int) -> dict:
+def rewards_correction_advantages(data, n: int, *,
+                                  norm_adv_by_std: bool = True) -> dict:
     """rm_scores → token rewards (fit loop 1536-1620), the DECOUPLED rollout
     correction (sequence-level truncated IS from the captured
     behaviour-policy logprobs — bypass mode is refused: it aliases capture
     into old_log_probs, assertion 1's hazard), then GRPO advantages grouped
     by the bridge's uid key (1637-1650). Returns per-row advantage stats —
     the caller should look at them: all-zero means the reward never fired.
+
+    `norm_adv_by_std` is verl's `norm_adv_by_std_in_grpo`, surfaced because
+    it is the F-08 decision transplanted to the verl estimator: verl's
+    whole-group std is structurally immune to the 1e-6-epsilon 1e6 blow-up
+    (F-09, test-pinned), but on sparse reward the normalization still
+    amplifies the lone rewarded episode — CP-21 measured +10.39 advantage
+    → 2.32 raw grad_norm, clipped to 1.0. False = Dr.GRPO (centre, don't
+    divide) — the same estimator change slime's
+    `--disable-grpo-std-normalization` made, which produced CP-17's
+    unclipped grad_norm 0.4513. The default True preserves the CP-21
+    measured shape for the one-step script; `train_loop.py` passes False
+    unless told otherwise.
     """
     from verl.trainer.config.algorithm import RolloutCorrectionConfig
     from verl.trainer.ppo.core_algos import AdvantageEstimator
@@ -221,7 +236,8 @@ def rewards_correction_advantages(data, n: int) -> dict:
         data, RolloutCorrectionConfig())
     data = compute_advantage(data, adv_estimator=AdvantageEstimator.GRPO,
                              gamma=1.0, lam=1.0, num_repeat=1,
-                             norm_adv_by_std_in_grpo=True, config=None)
+                             norm_adv_by_std_in_grpo=norm_adv_by_std,
+                             config=None)
     row_adv = []
     for i in range(n):
         m = data.batch["response_mask"][i].bool()

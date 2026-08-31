@@ -71,11 +71,13 @@ import bridge  # noqa: E402
 # CP-17's reward attach, byte-reused — loaded by explicit path because the
 # slime_bridge directory also carries a (different) `bridge.py` and must
 # never shadow the verl bridge on sys.path.
+# [CP-69] path re-pointed: the grader moved to verl_bridge/ when the slime
+# tree left main (tag slime-cp17). The one edit to this frozen artifact.
 import importlib.util  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location(
     "reward_cited_pages",
-    _HERE.parent.parent / "slime_bridge" / "reward_cited_pages.py")
+    _HERE.parent / "reward_cited_pages.py")
 _reward_mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_reward_mod)
 grade_session = _reward_mod.grade_session

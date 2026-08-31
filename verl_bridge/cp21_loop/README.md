@@ -3,12 +3,16 @@
 One iteration of **collect → convert → train → sync → collect**, run at
 library CP-21 on the H200. The bridge (`../bridge.py`) is CP-20's and
 unchanged; this directory is only what the *loop* needs around it — the
-CP-17 (`../../slime_bridge/cp17_loop/`) analog for the second trainer.
+CP-17 analog for the second trainer (the CP-17 loop lives at tag
+[`slime-cp17`](https://github.com/MHGanainy/gsj-harness-rollout-server-examples/tree/slime-cp17/slime_bridge/cp17_loop)
+since CP-69). The reusable multi-step form of this loop is
+`example_project/train_loop.py` (CP-69); this directory stays the CP-21
+evidence, verbatim but for the CP-69 grader path re-point.
 
 | file | what it is |
 | --- | --- |
 | `train_one_step.py` | the whole trainer side: bodies → grade (CP-17's `reward_cited_pages.py`, byte-reused) → the CP-20 bridge (three assertions live, ONE shared uid — F-10) → verl's own fit-loop plumbing mirrored from `ray_trainer.py` → one optimizer step in a real verl `TrainingWorker` (FSDP, world_size 1) → HF export via verl's own `FSDPCheckpointManager` (`save_contents=["hf_model"]`) |
-| `../../slime_bridge/cp17_loop/probe_sync.py` | the sync proof, reused verbatim — noise floor first, then across the sync |
+| `../probe_sync.py` | the sync proof, reused verbatim — noise floor first, then across the sync (at `../../slime_bridge/cp17_loop/probe_sync.py` when CP-21 ran; moved to `verl_bridge/` at CP-69) |
 
 ## Why this shape
 
@@ -61,10 +65,10 @@ GSJ_SUMMARY=~/cp21/summary.json python cp21_loop/train_one_step.py
 
 # 3. sync: probe (noise floor first), restart the engine on
 #    ~/cp21/ckpt/huggingface via serve-updated.sh, probe again, compare
-python ../slime_bridge/cp17_loop/probe_sync.py probe <collected.json> before.json
+python probe_sync.py probe <collected.json> before.json
 # ... serve-updated.sh ~/cp21/ckpt/huggingface ...
-python ../slime_bridge/cp17_loop/probe_sync.py probe <collected.json> after.json
-python ../slime_bridge/cp17_loop/probe_sync.py compare before.json after.json
+python probe_sync.py probe <collected.json> after.json
+python probe_sync.py compare before.json after.json
 
 # 4. collect again — same command as step 1
 ```

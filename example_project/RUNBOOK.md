@@ -21,10 +21,11 @@ F-14 is retired and what remains operator-held is the estate knowledge
   current since CP-29) as this repo's SIBLING, for `vendor/polar/`; a
   sibling checkout with a built wheel in `dist/` also overrides the PyPI
   install for developers running unreleased library changes.
-- **Note**: `train.py` is NOT self-contained in `example_project/` — it
-  imports `../verl_bridge/` (the conversion) and
-  `../slime_bridge/reward_cited_pages.py` (the grader). Move the whole
-  examples repo, never the one directory (F-32).
+- **Note**: `train.py` and `train_loop.py` are NOT self-contained in
+  `example_project/` — they import `../verl_bridge/` (the conversion,
+  the grader `reward_cited_pages.py`, and the sync probe
+  `probe_sync.py` — the latter two moved there from the slime tree at
+  CP-69). Move the whole examples repo, never the one directory (F-32).
 - **The estate handover**: the four endpoint values (Configure below),
   the **MCP HMAC secret's value** (the service was started with it; a
   mismatch surfaces only mid-episode as failed tool calls — there is no
@@ -276,11 +277,26 @@ resolves — that is the operator workstation, never the estate box
 itself, where it dies with a misleading `ssh: Could not resolve
 hostname` after announcing the engine stop. (train.py's closing
 printout says the same since CP-27.) Point it at the printed HF export, probing logprobs before
-and after with `slime_bridge/cp17_loop/probe_sync.py` (identical
+and after with `../verl_bridge/probe_sync.py` (identical
 weights probe exactly 0.0; a real sync moves nearly every position).
 Engine downtime is about a minute. Drain in-flight episodes before
 syncing — the loop is safe serialized; overlapping collection with a
 sync is not yet instrumented (A-13).
+
+**Or let `train_loop.py` do all of that** (CP-69 — the loop): N steps of
+collect → grade → batch → train → sync → collect, one command, the sync
+executed via `--sync-cmd` and PROVEN by the probe each time (a sync
+whose probe moves zero positions aborts the loop — the engine is
+serving the old weights). On a host that trains where it serves, the
+sync command is `bash sync_engine_local.sh {ckpt}` (this directory —
+the serve-updated recipe run locally); from a workstation it is the
+library's `estate/serving/serve-updated.sh {ckpt}` (F-29 decides which
+side you are on). The loop refuses `--steps > 1` without a sync
+command, refuses a zero-reward batch (`--allow-zero-advantage`
+overrides, loudly), ships the F-08 guard by default
+(`--grpo-std-normalization` opts back in), and warns on multi-step runs
+with entropy/KL unarmed. One worker persists across steps — optimizer
+state continues; only the engine restarts.
 
 ## Thinking — the two modes, what each costs, and the pins that must agree
 
@@ -480,9 +496,14 @@ bank.
 
 The first measured loop trained with slime v0.3.0 — it needs its own
 container image (`slimerl/slime:v0.3.0`, 24.4 GB; the image's Megatron,
-not Polar's documented pin) and lives in `../slime_bridge/cp17_loop/`
-with its own run book. This project uses verl because the trainer is a
-host venv rather than an image; the traces are the same either way.
+not Polar's documented pin). Since CP-69 the slime path is no longer on
+main: the complete `slime_bridge/` (bridge, 14-test suite,
+`cp17_loop/` and its run book, ADRs, fixtures) is frozen at tag
+[`slime-cp17`](https://github.com/MHGanainy/gsj-harness-rollout-server-examples/tree/slime-cp17/slime_bridge)
+(commit `73e63f0e`) — restore with
+`git checkout slime-cp17 -- slime_bridge`. This project uses verl
+because the trainer is a host venv rather than an image; the traces are
+the same either way.
 
 ## What can still surprise you
 

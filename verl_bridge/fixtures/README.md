@@ -1,6 +1,8 @@
 # Fixtures — real callback bodies, committed provenance
 
-Byte-identical copies of `../slime_bridge/fixtures/` (one file of record
+Byte-identical copies of the slime bridge's `fixtures/` (at tag
+[`slime-cp17`](https://github.com/MHGanainy/gsj-harness-rollout-server-examples/tree/slime-cp17/slime_bridge/fixtures)
+since CP-69; one file of record
 per project — the repo convention is self-contained project directories),
 which are themselves byte-identical copies of bodies committed in the
 library repo (`docs/polar/`), the provenance record. They are the two

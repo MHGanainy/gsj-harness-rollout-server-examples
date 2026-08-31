@@ -5,3 +5,8 @@ __pycache__/
 *.pyc
 .pytest_cache/
 *.log
+# train.py / train_loop.py working sets (CP-69): collected bodies,
+# checkpoints, per-run dirs — the receiver's traces_dir is the archive.
+example_project/collected*/
+example_project/ckpt/
+example_project/runs/

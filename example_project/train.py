@@ -241,9 +241,13 @@ def row_uid(row: dict) -> str:
     return f"{row['case_id']}:t{row['timestep']}:{row['prompt_id']}"
 
 
-def collect(cfg, rows: list[dict], out: Path, episodes: int, timeout: float) -> None:
+def collect(cfg, rows: list[dict], out: Path, episodes: int, timeout: float,
+            task_suffix: str = "") -> None:
     """Submit every training row, wait, keep what survives `checks` — the
-    same validator the receiver ran (law 6: this side re-verifies)."""
+    same validator the receiver ran (law 6: this side re-verifies).
+    `task_suffix` distinguishes repeat submissions of one row (Polar 409s
+    a duplicate task id — rollout server.py:119); train_loop.py passes
+    `-step<k>` so each loop step is its own task."""
     client = RolloutClient(cfg.polar.rollout.base_url)
     tasks = []
     total_ok = total_rejected = 0
@@ -257,7 +261,7 @@ def collect(cfg, rows: list[dict], out: Path, episodes: int, timeout: float) -> 
             f"but the config runs {cfg.runtime.image!r}")
         request = render_task_request(
             cfg,
-            task_id=row_uid(row).replace(":", "-"),
+            task_id=row_uid(row).replace(":", "-") + task_suffix,
             instruction=row["prompt_text"] or row["skill_card_text"],
             case_id=row["case_id"], timestep=row["timestep"],
             episodes=episodes, timeout_seconds=timeout,
@@ -338,7 +342,7 @@ def grade_and_ingest(cfg, out: Path) -> list:
     `reward: null`; grading BEFORE ingest is what makes this GRPO rather
     than an expensive way to train on zeros."""
     grader = loop.load_reward_module(
-        _HERE.parent / "slime_bridge" / "reward_cited_pages.py")
+        _HERE.parent / "verl_bridge" / "reward_cited_pages.py")
     page_counts = cfg.user.get("page_counts", {})         # ours, via `user:`
     records = []
     rewards = []
@@ -525,8 +529,9 @@ def main() -> None:
           "        default 'h200-admin' — run it where that alias resolves,\n"
           "        F-29; ~1 min engine downtime):\n"
           f"        estate/serving/serve-updated.sh {hf_dir}\n"
-          "        probe before/after: slime_bridge/cp17_loop/probe_sync.py\n"
-          "        then collect again; drain in-flight episodes first (A-13)")
+          "        probe before/after: verl_bridge/probe_sync.py\n"
+          "        then collect again; drain in-flight episodes first (A-13)\n"
+          "        — or run train_loop.py, which scripts all of the above")
 
 
 if __name__ == "__main__":

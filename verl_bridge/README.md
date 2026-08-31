@@ -9,7 +9,9 @@
 > (F-42).
 
 Built at library CP-20 (M6a: the second trainer). The slime bridge
-(`../slime_bridge/`, CP-16) is the template; the target class changed,
+(CP-16; on main until CP-69, now frozen at tag
+[`slime-cp17`](https://github.com/MHGanainy/gsj-harness-rollout-server-examples/tree/slime-cp17/slime_bridge),
+commit `73e63f0e`) is the template; the target class changed,
 the three assertions did not. ADR-0003 records the route decision —
 direct conversion, after reading uni-agent @ `73b0f41` and finding its
 trainer-side path cannot ingest externally-produced trajectories (it
@@ -98,9 +100,10 @@ Named now so cluster time discovers nothing:
    checkpoint reload again, with the same A-13 drain rule; P3 stamping
    goes live the moment collection and training overlap.
 4. **Reward attach** (F-02): every real body carries `reward: null`.
-   CP-17's `../slime_bridge/reward_cited_pages.py` grades citations
-   against the cutoff; reuse it and place the value on the trace before
-   ingest, or pass it into `rm_scores` via the record.
+   CP-17's `reward_cited_pages.py` (this directory since CP-69; it
+   lived in the slime tree before that) grades citations against the
+   cutoff; reuse it and place the value on the trace before ingest, or
+   pass it into `rm_scores` via the record.
 5. **uid grouping** (F-10): GRPO with the default uid (= session id)
    makes every group a singleton — mean 0 / std 1 hardcoded — so
    advantages are raw uncentred rewards. Episodes of one prompt must
