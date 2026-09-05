@@ -26,7 +26,8 @@ buildable is what CP-17 and CP-21 both did by hand: export HF weights,
 stop the engine, restart it on the checkpoint under the SAME served name
 (`estate/serving/serve-updated.sh` is the workstation-side recipe;
 `sync_engine_local.sh` beside this script is the run-where-you-serve
-form), wait for /v1/models. ~1 min downtime, measured here every sync.
+form), wait for /v1/models. CP-87 measured 218 s / 158 s of downtime;
+it varies and is measured here every sync, not guaranteed by those runs.
 
 STALENESS (A-13): this loop is SERIALIZED — `collect` returns only when
 every episode is terminal, the sync starts only after that, and the next
@@ -57,6 +58,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
@@ -140,8 +142,8 @@ def parse_args():
     if args.entropy_coeff != 0.0 or args.use_kl_loss:
         p.error(f"found entropy_coeff={args.entropy_coeff}, use_kl_loss={args.use_kl_loss}; "
                 "expected entropy_coeff=0 and KL disabled: both controls are unsupported. "
-                "Use --entropy-coeff 0 without --use-kl-loss; phase 5 must fund a safe "
-                "entropy path and a reference policy before enabling them.")
+                "Use --entropy-coeff 0 without --use-kl-loss; the operator did not "
+                "fund these controls in phase 5. A later phase needs its own window.")
     if args.sync_cmd:
         sync_command(args.sync_cmd, "checkpoint")  # validate before collection
     if args.steps > 1 and not args.sync_cmd:
@@ -259,6 +261,45 @@ def probe_paths(step_dir: Path) -> tuple[Path, Path]:
     return step_dir / "probe_before.json", step_dir / "probe_after.json"
 
 
+def write_summary(run_dir: Path, summary: dict) -> None:
+    """Publish one complete JSON snapshot; the loop is its only writer."""
+    run_dir.mkdir(parents=True, exist_ok=True)
+    pending = run_dir / "summary.json.tmp"
+    pending.write_text(json.dumps(summary, indent=2, default=str) + "\n")
+    pending.replace(run_dir / "summary.json")
+
+
+@contextmanager
+def step_stage(run_dir: Path, summary: dict, step_record: dict, name: str):
+    """Persist a stage boundary before entering potentially silent GPU work.
+
+    These are host monotonic call durations, without extra CUDA barriers.
+    A killed process leaves a running stage with its start, never an invented
+    completion. Existing replay/advantage/optimizer metrics survive each write.
+    This helper also serves an explicit fixed-archive diagnostic harness; it
+    does not relax the collecting CLI's fresh-directory requirement.
+    """
+    stage = {"status": "running", "started_monotonic_s": time.monotonic()}
+    step_record.setdefault("stages", {})[name] = stage
+    write_summary(run_dir, summary)
+    print(f"[loop] stage {name} started (monotonic {stage['started_monotonic_s']:.6f}s)")
+    try:
+        yield stage
+    except BaseException as exc:
+        stage["status"] = "failed"
+        stage["error_type"] = type(exc).__name__
+        step_record["status"] = "failed"
+        raise
+    else:
+        stage["status"] = "complete"
+    finally:
+        stage["ended_monotonic_s"] = time.monotonic()
+        stage["duration_s"] = (stage["ended_monotonic_s"]
+                               - stage["started_monotonic_s"])
+        write_summary(run_dir, summary)
+        print(f"[loop] stage {name} {stage['status']}: {stage['duration_s']:.3f}s")
+
+
 def main() -> None:
     sys.stdout.reconfigure(line_buffering=True)    # F-46
     args = parse_args()
@@ -300,28 +341,35 @@ def main() -> None:
               "narrowing in exactly this configuration and warned that one "
               "more step deepens the collapse. This run proceeds as "
               "configured (measured, not tuned). Both controls are unsupported; "
-              "phase 5 must decide their memory and compute budget.")
+              "the operator did not fund them in phase 5; funding needs "
+              "a later phase and its own window.")
 
     worker = None
     probe_stream: Path | None = None               # fixed for the whole run
-    summary: dict = {"row": train.row_uid(row), "steps": []}
+    summary: dict = {"row": train.row_uid(row), "steps": [],
+                     "timing_clock": "time.monotonic", "pid": os.getpid()}
 
     for k in range(1, args.steps + 1):
         step_dir = run_dir / f"step{k}"
         collected = step_dir / "collected"
         print(f"\n[loop] ===== step {k}/{args.steps} =====")
+        step_record = {"step": k, "status": "running", "attempts": args.episodes,
+                       "stages": {}}
+        summary["steps"].append(step_record)
 
         # -- collect: train.py's stage (image-pin assert, gsj_uid stamp,
         # F-27/F-51 counters). Serialized: returns only when every episode
         # is terminal, so nothing is in flight at the sync boundary.
-        train.collect(cfg, [row], collected, args.episodes, args.timeout,
-                      task_suffix=f"-step{k}")
-        bodies = sorted(collected.glob("*.json"))
-        if len(bodies) < 2:
-            sys.exit(f"train_loop.py: step {k} collected {len(bodies)} "
-                     "episodes — a GRPO group needs >= 2 (F-10). Extend "
-                     "--episodes, check the receiver/quarantine, or pick a "
-                     "healthier --row.")
+        with step_stage(run_dir, summary, step_record, "collect"):
+            train.collect(cfg, [row], collected, args.episodes, args.timeout,
+                          task_suffix=f"-step{k}")
+            bodies = sorted(collected.glob("*.json"))
+            step_record["collected"] = len(bodies)
+            if len(bodies) < 2:
+                sys.exit(f"train_loop.py: step {k} collected {len(bodies)} "
+                         "episodes — a GRPO group needs >= 2 (F-10). Extend "
+                         "--episodes, check the receiver/quarantine, or pick a "
+                         "healthier --row.")
         if probe_stream is None:
             probe_stream = bodies[0]               # the run's fixed stream
             print(f"[loop] probe stream fixed for the run: "
@@ -330,44 +378,61 @@ def main() -> None:
 
         # -- grade + ingest: train.py's stage (reward attach before ingest,
         # three assertions inside, masked-row naming, singleton drop).
-        records = train.grade_and_ingest(cfg, collected)
-        if (not args.allow_zero_advantage
-                and all(r.reward == 0.0 for r in records)):
-            # Refuse HERE, before the GPU spends minutes on worker init +
-            # recompute for a step that is provably decay-only: all-zero
-            # rewards give all-zero GRPO advantages. The advantage-level
-            # check below still stands — it also catches the all-EQUAL
-            # nonzero case (centering zeroes those too, CP-17's post-sync
-            # 8/8 shape) that this cheap check cannot see.
-            sys.exit(f"train_loop.py: step {k}'s reward never fired (0/"
-                     f"{len(bodies)} sessions rewarded) — the step would "
-                     "be weight decay only. The measured density is "
-                     "1/27–1/112 (CP-17/CP-21): extend --episodes, pick "
-                     "another --row, or pass --allow-zero-advantage to "
-                     "take the decay-only step anyway (measured, not "
-                     "hidden).")
+        with step_stage(run_dir, summary, step_record, "grade"):
+            records = train.grade_and_ingest(cfg, collected)
+            step_record["rewards"] = {
+                "rows": len(records),
+                "nonzero": sum(r.reward != 0.0 for r in records),
+                "mean": sum(r.reward for r in records) / len(records) if records else 0.0,
+            }
+            if (not args.allow_zero_advantage
+                    and all(r.reward == 0.0 for r in records)):
+                # Refuse HERE, before the GPU spends minutes on worker init +
+                # recompute for a step that is provably decay-only: all-zero
+                # rewards give all-zero GRPO advantages. The advantage-level
+                # check below still stands — it also catches the all-EQUAL
+                # nonzero case (centering zeroes those too, CP-17's post-sync
+                # 8/8 shape) that this cheap check cannot see.
+                sys.exit(f"train_loop.py: step {k}'s reward never fired (0/"
+                         f"{len(bodies)} sessions rewarded) — the step would "
+                         "be weight decay only. The measured density is "
+                         "1/27–1/112 (CP-17/CP-21): extend --episodes, pick "
+                         "another --row, or pass --allow-zero-advantage to "
+                         "take the decay-only step anyway (measured, not "
+                         "hidden).")
 
-        data = bridge.build_batch(records, pad_token_id=pad_id)
-        n = len(data)
-        assert not data.meta_info["oversize_dropped"]
+        with step_stage(run_dir, summary, step_record, "batch"):
+            data = bridge.build_batch(records, pad_token_id=pad_id)
+            n = len(data)
+            assert not data.meta_info["oversize_dropped"]
+            step_record["batch_rows"] = n
         print(f"[loop] batch: {n} rows, "
               f"P={data.meta_info['prompt_length']} "
               f"R={data.meta_info['response_length']}")
 
         if worker is None:
-            worker = loop.make_worker(str(snapshot), lr=args.lr,
-                                      entropy_coeff=args.entropy_coeff,
-                                      use_kl_loss=args.use_kl_loss)
+            with step_stage(run_dir, summary, step_record, "worker_init"):
+                worker = loop.make_worker(str(snapshot), lr=args.lr,
+                                          entropy_coeff=args.entropy_coeff,
+                                          use_kl_loss=args.use_kl_loss)
             print(f"[loop] worker up from {snapshot} (lr={args.lr}, "
                   f"entropy_coeff={args.entropy_coeff}, "
                   f"use_kl_loss={args.use_kl_loss}); it PERSISTS across "
                   "steps — optimizer state continues, only the engine is "
                   "restarted at each sync")
+        else:
+            step_record["stages"]["worker_init"] = {
+                "status": "skipped", "reason": "persistent worker reused",
+                "duration_s": 0.0}
+            write_summary(run_dir, summary)
 
-        loop.stamp_meta(data)
-        replay = loop.recompute_old_log_probs(
-            data, worker, floor_mean=bridge.H200_REPLAY_FLOOR_MEAN,
-            floor_per_position=bridge.H200_REPLAY_FLOOR_PER_POSITION)
+        with step_stage(run_dir, summary, step_record, "replay"):
+            loop.stamp_meta(data)
+            replay = loop.recompute_old_log_probs(
+                data, worker, floor_mean=bridge.H200_REPLAY_FLOOR_MEAN,
+                floor_per_position=bridge.H200_REPLAY_FLOOR_PER_POSITION)
+            step_record["replay"] = {key: value for key, value in replay.items()
+                                     if key != "verl_debug_metrics"}
         print(f"[loop] recompute vs captured: mean|Δ|={replay['mean_abs']:.6f}"
               f" (floor {replay['floor_mean']}), "
               f"{replay['positions_over_floor']}/{replay['positions']} over "
@@ -402,98 +467,101 @@ def main() -> None:
                   "GRPO on sparse reward amplifies the lone rewarded episode "
                   "(CP-21: +10.39 advantage, clipped step); proceeding as "
                   "told.")
-        stats = loop.rewards_correction_advantages(
-            data, n, norm_adv_by_std=args.grpo_std_normalization)
-        adv = stats["advantages"]
-        print(f"[loop] advantages (GRPO, norm_by_std="
-              f"{args.grpo_std_normalization}): min={adv['min']:.4f} "
-              f"mean={adv['mean']:.4f} max={adv['max']:.4f} "
-              f"nonzero={adv['nonzero']}/{n}")
-        if adv["nonzero"] == 0 and not args.allow_zero_advantage:
-            sys.exit(f"train_loop.py: step {k}'s reward never fired — every "
-                     "advantage is 0.0, so the policy gradient is zero and "
-                     "the 'step' would be weight decay only. The measured "
-                     "density is 1/27–1/112 (CP-17/CP-21): extend "
-                     "--episodes, pick another --row, or pass "
-                     "--allow-zero-advantage to take the decay-only step "
-                     "anyway (measured, not hidden).")
+        with step_stage(run_dir, summary, step_record, "advantages"):
+            stats = loop.rewards_correction_advantages(
+                data, n, norm_adv_by_std=args.grpo_std_normalization)
+            adv = stats["advantages"]
+            step_record["advantages"] = adv
+            print(f"[loop] advantages (GRPO, norm_by_std="
+                  f"{args.grpo_std_normalization}): min={adv['min']:.4f} "
+                  f"mean={adv['mean']:.4f} max={adv['max']:.4f} "
+                  f"nonzero={adv['nonzero']}/{n}")
+            if adv["nonzero"] == 0 and not args.allow_zero_advantage:
+                sys.exit(f"train_loop.py: step {k}'s reward never fired — every "
+                         "advantage is 0.0, so the policy gradient is zero and "
+                         "the 'step' would be weight decay only. The measured "
+                         "density is 1/27–1/112 (CP-17/CP-21): extend "
+                         "--episodes, pick another --row, or pass "
+                         "--allow-zero-advantage to take the decay-only step "
+                         "anyway (measured, not hidden).")
 
-        metrics = loop.train_one_step(data, worker, n)
-        grad_norm = metrics.get("grad_norm")
-        if not args.allow_zero_advantage:
-            assert grad_norm is not None and grad_norm > 0.0, \
-                f"grad_norm={grad_norm}"
+        with step_stage(run_dir, summary, step_record, "optimizer"):
+            metrics = loop.train_one_step(data, worker, n)
+            step_record["train_metrics"] = metrics
+            grad_norm = metrics.get("grad_norm")
+            if not args.allow_zero_advantage:
+                assert grad_norm is not None and grad_norm > 0.0, \
+                    f"grad_norm={grad_norm}"
         print(f"[loop] optimizer step {k}: "
               f"pg_loss={metrics.get('actor/pg_loss')} "
               f"grad_norm={grad_norm} "
               f"clipfrac={metrics.get('actor/pg_clipfrac')}")
 
-        hf_dir = loop.save_hf_export(worker, str(step_dir / "ckpt"))
+        with step_stage(run_dir, summary, step_record, "export"):
+            hf_dir = loop.save_hf_export(worker, str(step_dir / "ckpt"))
+            step_record["hf_export"] = hf_dir
         print(f"[loop] HF export: {hf_dir}")
-
-        step_record = {
-            "step": k, "collected": len(bodies), "attempts": args.episodes,
-            "batch_rows": n,
-            "replay": {key: value for key, value in replay.items()
-                       if key != "verl_debug_metrics"},
-            "advantages": adv, "train_metrics": metrics, "hf_export": hf_dir,
-        }
 
         # -- the sync (skipped only on a final step with no --sync-cmd;
         # syncing after the last step keeps the ENGINE at the final policy).
         if args.sync_cmd:
             before_path, after_path = probe_paths(step_dir)
-            probe_sync.probe(str(probe_stream), str(before_path),
-                             engine_url, model)
-            if k == 1:
-                # The noise floor, once per run: two probes on IDENTICAL
-                # weights must differ at exactly 0.0 (CP-09'/CP-17: this
-                # engine's replay is bit-deterministic) — otherwise deltas
-                # cannot be attributed to the sync and the proof is void.
-                floor_path = step_dir / "probe_floor.json"
-                probe_sync.probe(str(probe_stream), str(floor_path),
+            with step_stage(run_dir, summary, step_record, "probe_before"):
+                probe_sync.probe(str(probe_stream), str(before_path),
                                  engine_url, model)
-                floor = probe_sync.compare(str(before_path), str(floor_path))
-                if floor["mean_abs"] != 0.0:
-                    sys.exit("train_loop.py: the probe is NOISY on this "
-                             f"engine (mean|Δ|={floor['mean_abs']:.6f} on "
-                             "identical weights, expected exactly 0.0) — "
-                             "the sync proof cannot attribute deltas to "
-                             "the weight change. Fix the engine's "
-                             "determinism story before looping.")
-                print("[loop] probe noise floor: mean|Δ|=0.000000 — "
-                      "zero-noise instrument confirmed")
-                step_record["probe_floor"] = floor
+                if k == 1:
+                    # The noise floor, once per run: two probes on IDENTICAL
+                    # weights must differ at exactly 0.0 (CP-09'/CP-17: this
+                    # engine's replay is bit-deterministic) — otherwise deltas
+                    # cannot be attributed to the sync and the proof is void.
+                    floor_path = step_dir / "probe_floor.json"
+                    probe_sync.probe(str(probe_stream), str(floor_path),
+                                     engine_url, model)
+                    floor = probe_sync.compare(str(before_path), str(floor_path))
+                    step_record["probe_floor"] = floor
+                    if floor["mean_abs"] != 0.0:
+                        sys.exit("train_loop.py: the probe is NOISY on this "
+                                 f"engine (mean|Δ|={floor['mean_abs']:.6f} on "
+                                 "identical weights, expected exactly 0.0) — "
+                                 "the sync proof cannot attribute deltas to "
+                                 "the weight change. Fix the engine's "
+                                 "determinism story before looping.")
+                    print("[loop] probe noise floor: mean|Δ|=0.000000 — "
+                          "zero-noise instrument confirmed")
             print(f"[loop] sync boundary: step {k}'s collection is fully "
                   "terminal and no collection is in flight — the loop is "
                   "serialized, so no batch spans a sync (A-13, by "
                   "construction and now stated)")
-            downtime = run_sync(args.sync_cmd, hf_dir, engine_url, model,
-                                args.sync_timeout)
-            probe_sync.probe(str(probe_stream), str(after_path),
-                             engine_url, model)
-            moved = probe_sync.compare(str(before_path), str(after_path))
-            if moved["mean_abs"] == 0.0:
-                sys.exit("train_loop.py: SYNC FAILED THE PROOF — the engine "
-                         "answered /v1/models but ZERO probe positions "
-                         "moved: it is serving the OLD weights (stop half "
-                         "failed, wrong checkpoint path, or a cached "
-                         "process). This is the failure mode the probe "
-                         "exists to catch; do not trust this sync.")
-            print(f"[loop] sync PROVEN: mean|Δ|={moved['mean_abs']:.6f} "
-                  f"max|Δ|={moved['max_abs']:.6f} "
-                  f"moved={moved['nonzero']}/{moved['positions']} "
-                  f"(downtime {downtime:.0f}s)")
-            step_record["sync"] = {"downtime_s": downtime, "probe": moved}
+            with step_stage(run_dir, summary, step_record, "sync"):
+                downtime = run_sync(args.sync_cmd, hf_dir, engine_url, model,
+                                    args.sync_timeout)
+                step_record["sync"] = {"downtime_s": downtime}
+            with step_stage(run_dir, summary, step_record, "probe_after"):
+                probe_sync.probe(str(probe_stream), str(after_path),
+                                 engine_url, model)
+                moved = probe_sync.compare(str(before_path), str(after_path))
+                step_record["sync"]["probe"] = moved
+                if moved["mean_abs"] == 0.0:
+                    sys.exit("train_loop.py: SYNC FAILED THE PROOF — the engine "
+                             "answered /v1/models but ZERO probe positions "
+                             "moved: it is serving the OLD weights (stop half "
+                             "failed, wrong checkpoint path, or a cached "
+                             "process). This is the failure mode the probe "
+                             "exists to catch; do not trust this sync.")
+                print(f"[loop] sync PROVEN: mean|Δ|={moved['mean_abs']:.6f} "
+                      f"max|Δ|={moved['max_abs']:.6f} "
+                      f"moved={moved['nonzero']}/{moved['positions']} "
+                      f"(downtime {downtime:.0f}s)")
         else:
+            step_record["stages"]["sync"] = {
+                "status": "skipped", "reason": "no --sync-cmd"}
             print("[loop] no --sync-cmd: the engine still serves the "
                   "PRE-step weights — sync by hand before any further "
                   "collection (estate.sh serve-updated "
                   f"{hf_dir})")
 
-        summary["steps"].append(step_record)
-        (run_dir / "summary.json").write_text(
-            json.dumps(summary, indent=2, default=str))
+        step_record["status"] = "complete"
+        write_summary(run_dir, summary)
 
     print(f"\n[loop] done: {args.steps} steps; summary -> "
           f"{run_dir / 'summary.json'}")

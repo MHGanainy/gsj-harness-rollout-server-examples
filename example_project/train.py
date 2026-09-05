@@ -519,8 +519,8 @@ def main() -> None:
     # ---- the step: every numeric op verl's, wired by loop.py -------------
     loop.stamp_meta(data)
     worker = loop.make_worker(args.snapshot)   # entropy/KL OFF: right for ONE
-    # audited step. Both controls are unsupported pending phase 5; CP-21
-    # measured the post-sync distribution narrowing without them.
+    # audited step. Phase 5 did not fund either control; both remain
+    # unsupported. CP-21 measured post-sync distribution narrowing without them.
     replay = loop.recompute_old_log_probs(
         data, worker, floor_mean=bridge.H200_REPLAY_FLOOR_MEAN,
         floor_per_position=bridge.H200_REPLAY_FLOOR_PER_POSITION)
@@ -550,7 +550,9 @@ def main() -> None:
     print("[train] next — the sync (WORKSTATION-side, not the estate box: the\n"
           "        script drives the estate over ssh via GSJ_VLLM_SSH_HOST,\n"
           "        default 'h200-admin' — run it where that alias resolves,\n"
-          "        F-29; ~1 min engine downtime):\n"
+          "        F-29; CP-87 measured 218 s / 158 s engine downtime;\n"
+          "        downtime varies; measure each sync — these observations\n"
+          "        are not a timing guarantee):\n"
           f"        estate/serving/serve-updated.sh {hf_dir}\n"
           "        probe before/after: verl_bridge/probe_sync.py\n"
           "        then collect again; drain in-flight episodes first (A-13)\n"

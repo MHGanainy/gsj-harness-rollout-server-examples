@@ -51,7 +51,7 @@ rm -f run/vllm.pid
 # START (REMOTE_START, verbatim semantics): the updated checkpoint under
 # the SAME served name and the same four legs.
 CUDA_VISIBLE_DEVICES="$GPU" VLLM_LOGGING_LEVEL=DEBUG \
-VLLM_ATTENTION_BACKEND=FLASH_ATTN VLLM_USE_FLASHINFER_SAMPLER=0 \
+VLLM_USE_FLASHINFER_SAMPLER=0 \
 nohup ./venv/bin/vllm serve "$CKPT" \
   --served-model-name "$GSJ_MODEL_ID" \
   --host 127.0.0.1 --port "$PORT" \

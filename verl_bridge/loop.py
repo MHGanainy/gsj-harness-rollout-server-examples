@@ -17,7 +17,8 @@ their script rather than inherit it silently (CP-25's rule):
     `bridge.ingest_session_result`, at the caller's call site.
   - entropy/KL control: `make_worker` defaults both OFF (the measured
     one-step shape); nonzero entropy/KL requests are refused. CP-21
-    watched the post-sync distribution narrow; safe controls await phase 5.
+    watched the post-sync distribution narrow; the operator did not fund
+    controls in phase 5. Funding needs a later phase and its own window.
 
 Heavy imports (torch, verl) happen inside functions so the desk half of a
 caller (`--dry-run`, collection) runs on a CPU-only box.
@@ -112,7 +113,8 @@ def make_worker(snapshot: str, *, max_token_len: int = MAX_TOKEN_LEN,
     if entropy_coeff != 0.0 or use_kl_loss:
         raise ValueError(f"found entropy_coeff={entropy_coeff}, use_kl_loss={use_kl_loss}; "
                          "expected zero entropy and KL disabled: unsupported controls; "
-                         "use the defaults until phase 5 funds their implementation")
+                         "use the defaults; phase 5 did not fund these controls, "
+                         "and a later phase needs its own window")
     import torch
     from functools import partial
     from verl.trainer.config.config import CheckpointConfig

@@ -67,7 +67,8 @@ cannot be retrofitted onto a running server. The in-place middle path
 (verl's standalone replica serving a real OpenAI endpoint the gateway
 could front) exists but means the engine lives and dies with the verl
 Ray job — surrendering the serving. This estate keeps engine ownership;
-the loop keeps the ~1-minute restart and measures it every time.
+the loop keeps the restart. CP-87 measured 218 s / 158 s; downtime varies
+and is measured at every sync, not guaranteed by those observations.
 
 The three assertions are the reason a bridge exists at all: a logprob at
 a masked position becomes a silent importance ratio inside your trainer
@@ -137,8 +138,8 @@ proofs, owned by any real run:
   `--use-kl-loss` refuse before collection, imports or worker allocation.
   `loop.make_worker` also refuses unsupported values. The loop still warns
   on multi-step runs with both off: CP-21 observed distribution narrowing.
-  Phase 5 must fund safe entropy and a reference-policy leg; neither
-  control is enabled by this checkpoint. See [the cost and refusal contract](example_project/RUNBOOK.md#cp-86-training-contract).
+  The operator did not fund either control in phase 5; the refusals stand.
+  Funding requires a later phase and its own GPU window ([ADR-0005](verl_bridge/decisions/ADR-0005-defer-entropy-and-kl.md)). See [the cost and refusal contract](example_project/RUNBOOK.md#cp-86-training-contract).
 
 **The bridge is consumer code, not library code** (library ADR-0018: a
 bridge exists to feed a trainer, so it is the trainer's). A bug in
@@ -198,14 +199,16 @@ carries the operational versions and the per-mode expectations
   sync: the engine that collected and the worker that recomputes hold
   the same post-step weights, so floor-level agreement means the sync
   really served the trained checkpoint.
-- **The sync.** Export HF-format weights, restart the serving engine,
-  **~1 minute of engine downtime per sync**, measured by the loop each
-  time. A-13's drain rule is satisfied by construction — the loop is
+- **The sync.** Export HF-format weights, restart the serving engine.
+  **CP-87 measured 218 s / 158 s of engine downtime**, from sync-command
+  start through readiness. Downtime varies and the loop measures each
+  sync; these observations are not a timing guarantee. A-13's drain rule
+  is satisfied by construction — the loop is
   serialized: collection is fully terminal before a sync starts, and
   the next collection starts only after `/v1/models` confirms the new
   checkpoint, so no batch ever spans a sync. Proven with a zero-noise
-  probe every run (identical weights probe exactly 0.0; a real sync
-  moved >95% of probed positions each measured time).
+  probe every run (CP-87's identical-weight floor was 0.0; its syncs
+  moved 8,883 / 9,887 and 9,447 / 9,887 probed positions).
 - **The GPU step.** One-step GRPO at 0.6B is not small: CP-21's 110-row
   batch (off) peaked 71.3 GiB allocated on an H200; CP-32's ON leg (72
   rows, longest 32,645 ids) peaked **94% of the device** (135,093 MiB),
@@ -220,9 +223,10 @@ additions, CP-69's answers):
 
 1. **In-place weight sync is not buildable against an engine you own**
    — answered at CP-69 from verl's source, not assumed (F-79). The
-   restart is ~1 min, serialized; escaping it means verl owning the
-   serving (a different estate) or a LoRA-only adapter swap (a shim
-   verl does not ship). Today: restart, measured.
+   serialized restart measured 218 s / 158 s at CP-87. Downtime varies
+   and is measured each sync; those observations are not a guarantee.
+   Escaping it means verl owning the serving (a different estate) or a
+   LoRA-only adapter swap (a shim verl does not ship).
 2. **Concurrency.** The moment collection and training overlap, A-13's
    drain rule needs a real barrier and P3's policy-version stamping
    goes live — both carried, both inert; every measured sync was
@@ -240,9 +244,11 @@ additions, CP-69's answers):
    overlapped with training is not — parallel submission at cadence is
    exactly where the async callback path and the drain rule start
    interacting for real.
-6. **Checkpoint retention.** Each step writes a full HF export (~1.5 GB
-   at 0.6B) under the run dir; retention, cleanup, and checkpoint
-   identity are entirely unbuilt.
+6. **Checkpoint retention.** Each step writes a full HF export under the
+   run dir. CP-87 measured a ~2.384 GB FP32 weight file at 0.6B, excluding
+   the other export files. The existing `max_ckpt_to_keep=1` removed
+   `step1/ckpt` on the second export. Configurable retention and checkpoint
+   identity policy remain unbuilt.
 
 One more cost that is not this repo's to count: the SERVER side needs an
 estate. The library README covers the two-role split;

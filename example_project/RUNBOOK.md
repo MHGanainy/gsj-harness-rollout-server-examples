@@ -283,9 +283,11 @@ hostname` after announcing the engine stop. (train.py's closing
 printout says the same since CP-27.) Point it at the printed HF export, probing logprobs before
 and after with `../verl_bridge/probe_sync.py` (identical
 weights probe exactly 0.0; a real sync moves nearly every position).
-Engine downtime is about a minute. Drain in-flight episodes before
-syncing — the loop is safe serialized; overlapping collection with a
-sync is not yet instrumented (A-13).
+CP-87 measured 218 s / 158 s of engine downtime, from sync-command start
+through readiness. Downtime varies and the loop measures every sync;
+these observations are not a timing guarantee. Drain in-flight episodes
+before syncing — the loop is safe serialized; overlapping collection
+with a sync is not yet instrumented (A-13).
 
 **Or let `train_loop.py` do all of that** (CP-69 — the loop): N steps of
 collect → grade → batch → train → sync → collect, one command, the sync
@@ -470,8 +472,8 @@ off-mode signature).
   no baseline and verl hands back the raw reward as its "advantage".
 - **Entropy/KL are unsupported and OFF.** CP-21's post-sync distribution
   narrowed (format-copying onset). Nonzero requests to `loop.make_worker`
-  now refuse before CUDA allocation. Phase 5 owns the control decision;
-  this checkpoint does not establish a safe multi-step training policy.
+  now refuse before CUDA allocation. The operator declined funding in
+  phase 5; the refusals stand. A later phase needs its own GPU window.
 - **Thinking ships ON** (`harness.thinking: "medium"`) since library
   CP-31 — the cost, the return, the per-mode G6 semantics, and the pins
   coupling are §Thinking above. (The pre-CP-30 statement that used to
@@ -482,9 +484,10 @@ off-mode signature).
   mcp-service 134. The corpus total is CP-82's 109 plus 87 estate-boundary
   regressions. Vendored Polar remains CP-82's 175 passed / 3 pre-existing
   failures; it was not rerun for this documentation correction.
-  This repo's current suite is 31: 26 bridge tests + 5 grader tests.
-  Those tests do not exercise the multi-step orchestration or prove a
-  GPU optimizer step; the per-checkpoint run evidence is separate.
+  CP-87's examples suite is 61 tests: the bridge and grader, CP-86
+  host contracts, and the new stage-persistence and backend-launch tests.
+  Orchestration tests exercise controlled stage doubles; a GPU optimizer
+  step and real sync still require the per-checkpoint runtime evidence.
 
 ## The bank
 
@@ -584,7 +587,9 @@ policy and another log-probability forward pass over the batch: roughly
 count), plus activation/workspace memory. It does not need a second optimizer.
 Reference logprobs themselves are small; obtaining them is the model cost.
 CP-82 prices real controls at approximately **1–3 engineer-days plus GPU
-validation**, with runtime cost unmeasured. Phase 5 decides whether to pay.
+validation**, with runtime cost unmeasured. The operator declined funding
+for both in phase 5 ([ADR-0005](../verl_bridge/decisions/ADR-0005-defer-entropy-and-kl.md));
+a later implementation needs its own phase and booked GPU window.
 
 The sync template owns its other shell syntax. Every `{ckpt}` must be a
 standalone unquoted word, for example
@@ -595,14 +600,36 @@ start through readiness. A local real-shell/HTTP test with 0.25 s shell
 sleep plus 0.08 s HTTP delay checks the whole interval; failure messages
 also retain command-start elapsed time. This host test is not a GPU restart.
 
-B17 remains deferred: CP-86 finished before the booked 5 September 23:00
-Cairo window. All four living backend assignments are unchanged; the archived
-predecessor is frozen. At the window, re-verify vLLM **0.26.0**, then prefer
-removing the inert assignment to preserve the previously observed automatic
-selection (FLASH_ATTN/FlashAttention 3). The supported `--attention-backend
-FLASH_ATTN` would impose a backend choice instead, so it is not an equivalent
-cleanup. No backend correction closes until restart, effective-backend
-inspection and unchanged replay have been recorded on GPU 0 or 7.
-First inspect the frozen CP-82 192-row archive, artifacts and rollout.yaml;
-no box or archive was inspected in this host-only checkpoint. F-35's allocator
-retry warning is not by itself a crash; its RUNBOOK measurements remain.
+**B17 closed at CP-87 on the H200.** The four living launch assignments were
+removed, preserving automatic selection; the predecessor remains frozen.
+The installed build is vLLM **0.26.0+cu129** (public version 0.26.0). After
+restart, it still chose **FLASH_ATTN / FlashAttention 3**, without the unknown
+setting warning. A fixed 6,768-token stream yielded 6,767 logprobs: identical
+repeat probes and the comparison across restart both had mean/max |Δ| 0 and
+0 moved positions. The same-weight restart took **96.089 s** from command
+start through readiness; this is B17's configuration comparison, not a
+measurement of training-checkpoint sync. CP-87's later two-step run measured
+218 s / 158 s for training-checkpoint sync; G-04's timing claims now carry
+those variable observations. The retained 192-row CP-82 input, artifacts
+and configuration have a fixity record; its five TRUNCATED rows remain.
+F-35's allocator retry warning alone still does not establish a crash.
+
+## CP-87 stage records
+
+`train_loop.py` writes `summary.json` at the start and end of each stage.
+Each step records `collect`, `worker_init`, `replay`, `optimizer`, `export`
+and `sync` separately, plus grading, batching, advantages and probe calls.
+The durations use the host monotonic clock, without adding CUDA barriers.
+Sync runs from shell-command start through model readiness; the surrounding
+logprob probes have separate timings. These call durations are not GPU
+kernel profiles and need not sum to the entire process lifetime.
+
+A completed stage has start, end and duration. A caught failure also records
+its exception type. A hard termination leaves the active stage `running`
+with its start and no invented completion; earlier timings and metrics
+survive. On step 2, `worker_init` is explicitly skipped because the same
+worker and optimizer are reused. This record does not add resume support or
+relax the fresh-directory requirement. CP-87 reads the retained CP-82 input
+through an explicit diagnostic harness with the recorded snapshot revision
+and config/artifact fixity; an ordinary collecting invocation still collects
+its own new batch.
