@@ -64,14 +64,24 @@ not confirmed — the predecessor repo's rule: unverified is not false.
 
 | F-79 | DOC (the CP-69 engine-ownership answer — read from verl source at `1ae945592754cbeb1350cbe092fe6117070fd4c7`, the pinned SHA) | **verl cannot push weights into an inference engine it did not spawn.** No code path syncs to an external HTTP endpoint: every vLLM weight-update terminates in a Ray `collective_rpc` against a verl-launched `AsyncLLM` inside a verl-named Ray actor (`vLLMHttpServer`, located by `ray.get_actor(f"...server_{replica}_{node}")`, `vllm_rollout.py:152-166`), whose workers carry verl's injected `worker_extension_cls` (`vLLMColocateWorkerExtension.update_weights_from_ipc`, `vllm_async_server.py:293`/`utils.py:232`) and receive tensors as CUDA-IPC/shm handles over node-local ZMQ `ipc://` sockets (`vllm_rollout.py:139-150`). Even verl's "standalone" rollout mode means verl creates the Ray resource pool and launches vLLM's stock OpenAI server itself (`replica.py:189-226`, `vllm_async_server.py:434-486`); disaggregated syncs add an NCCL checkpoint-engine process group joining trainer rank 0 with verl-spawned per-replica `CheckpointEngineWorker`s (`base.py:283-341,485-538`). A standalone `vllm serve` behind Polar's gateway has no extension class, no ZMQ receiver, no Ray identity — verl's in-place sync cannot reach it, and vLLM cannot add an extension class to a running server, so it cannot be retrofitted. Middle paths, from the same read: (A) surrender the serving — verl's standalone replica IS a real vLLM OpenAI HTTP server with a stable `server_address` that verl updates in place (standalone skips sleep/wake, drops/restores only kv-cache around the broadcast) — the gateway could point at it, at the price of the engine living and dying with the verl Ray job; (B) LoRA-only hot swap via vLLM's stock `/v1/load_lora_adapter` (verl ships the trainer half for its own engines only; an out-of-verl shim, LoRA-only); no reload-from-checkpoint endpoint exists anywhere in verl at this SHA. Restart sync is therefore not a workaround here but the boundary's honest shape | no — verl architecture; the estate deliberately keeps engine ownership (scope law: Polar's gateway needs a stable endpoint) | RECORDED at CP-69; the loop (`example_project/train_loop.py`) scripts the restart sync and PROVES each one with the CP-17 probe. Revisit only if the estate hands serving to verl (path A) — a different estate, not a patch. `waiting-on: nothing — a boundary, not a defect` |
 
+| # | severity | finding | library-side? | status |
+| --- | --- | --- | --- | --- |
+| F-81 | FRICTION (training freshness, controls and evidence; CP-82 audit B08–B12/B17/B18) | CP-82 reproduced stale collected bodies entering a new run (including a two-body old batch with rewards 0 and 1), inert nonzero entropy and KL failing on absent `ref_log_prob`, a 1.222 s sync reported as 0.012 s, checkpoint paths with spaces splitting into arguments, and `--steps 0` reporting success without a summary. The pinned vLLM ignored the backend environment setting. The 192-row H200 attempt replayed successfully but stopped at 4,584.55 s in prolonged driver wait before any optimizer completion, export, sync or second collection; its cause is undetermined | no — examples controls/runtime; B17 also names the library's living serving scripts | **OPEN, registered at library CP-83 phase 1; no phase 4/5 fix or new GPU proof claimed.** Historical CP-69 success remains historical. `waiting-on: phase 4's fresh-run/unsupported-control refusals, full sync timer and quoted-path/positive-argument proofs, plus an engine restart with effective backend and replay recorded; phase 5's booked Mohamed H200 window, 5 September 2026 23:00–7 September 09:00 on GPUs 0 and 7, with intact frozen CP-82 collected bodies, artifact bytes and rollout.yaml, driver-wait diagnosis and a recorded two-step result or clean stop` |
+
 The series continues in the demo repo: **F-54–F-78** (F-54–F-68:
 library CP-36, the first from-nothing stranger test, minted in the
 library's `docs/reports/CP-36.md`; F-69: library CP-40's orphan pass;
-F-70–F-78: library CP-61's demo-on-the-wheel run) live in
+F-70–F-78: library CP-61's demo-on-the-wheel run; F-80: library CP-81's
+decisions/case-content check) live in
 [gsj-rollout-demo/FINDINGS.md](https://github.com/MHGanainy/gsj-rollout-demo/blob/main/FINDINGS.md).
 The F-series is ONE register across both consumer repos: a new row,
 minted from either file, takes the next id after the highest
-**anywhere**. Next fresh id: **F-80**.
+**anywhere**. Next fresh id: **F-83** (F-81 is above; F-82 is the demo's
+deferred evidence/input-shape row). **[library CP-83, audit phase 1]**
+Reconciled the current published version, suite counts and CP-81 demo
+capability in the living docs. The audit's training controls, stale-run
+handling, sync timing/quoting and unfinished GPU attempt remain separate
+phase 4/5 obligations; this documentation correction does not close them.
 
 Rows F-03–F-08 and F-32/F-42/F-43 were minted against `slime_bridge/`,
 which left main at CP-69 — the complete slime path (bridge, 14-test

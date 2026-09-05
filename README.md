@@ -2,7 +2,7 @@
 
 **One bridge, one loop, one command.** The rollout server
 ([`gsj-harness-rollout-server`](https://github.com/MHGanainy/gsj-harness-rollout-server),
-PyPI 0.1.5) runs a legal-corpus research agent: given
+PyPI 0.1.7, verified at library CP-83) runs a legal-corpus research agent: given
 `(case, timestep, prompt)` it runs a pinned agent in an isolated sandbox
 with temporally-scoped retrieval — nothing past page `timestep` is
 reachable — on an *estate* (the server-side host set: corpus, retrieval
@@ -241,7 +241,10 @@ estate. The library README covers the two-role split;
 the bring-your-own-estate walk, measured from nothing (cold `up` ~2.5
 min, 6–7 GB of images, ~20–40 s per episode against a host-local 0.6B —
 synthetic two-case corpus, you bring the engine; register rows
-F-54–F-78). The reference estate's full bring-up spans the library
+F-54–F-78 and F-80). Since CP-81 it also supplies thirty synthetic
+decisions written for those cases, precedent prompts and a transcript's
+decision-citation view. Acceptance is a trace/provenance result, not a
+grade of the answer or its citations. The reference estate's full bring-up spans the library
 repo's `estate/` plus the predecessor repo's BRINGUP walk (F-33).
 
 ## Layout
@@ -276,8 +279,8 @@ repo's `estate/` plus the predecessor repo's BRINGUP walk (F-33).
   `requirements.txt`, `.venv`, and run book. Nothing here is installed.
 - The library arrives as a **wheel**, not a checkout — that is the
   point. Since library CP-29 the wheel comes from PyPI
-  (`pip install gsj-harness-rollout-server` — 0.1.5 as of library
-  CP-67), so the trainer role holds ONE tree: this repo. A library
+  (`pip install gsj-harness-rollout-server` — 0.1.7 verified at library
+  CP-83), so the trainer role holds ONE tree: this repo. A library
   checkout sitting beside this repo (with a built wheel in its `dist/`)
   overrides the index install — the developer path; `install.sh`
   documents it. The server role still runs Polar from that checkout's

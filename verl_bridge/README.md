@@ -27,7 +27,7 @@ in the tests, no double (contrast FINDINGS F-03 for slime).
 python3.12 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
 ./.venv/bin/pip install 'gsj-harness-rollout-server>=0.1.0'
 ./.venv/bin/pip install --no-deps "verl @ git+https://github.com/volcengine/verl.git@1ae945592754cbeb1350cbe092fe6117070fd4c7"
-./.venv/bin/python -m pytest -q          # 26 passed — no GPU, no estate
+./.venv/bin/python -m pytest -q          # 31 passed: 26 bridge + 5 grader — no GPU, no estate
 ```
 
 (Running ahead of a release: build in a sibling server checkout and

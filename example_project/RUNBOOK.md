@@ -14,8 +14,8 @@ F-14 is retired and what remains operator-held is the estate knowledge
 - **This repo**: `git clone
   https://github.com/MHGanainy/gsj-harness-rollout-server-examples`.
   The trainer role needs nothing else checked out — install.sh installs
-  the library from PyPI (`gsj-harness-rollout-server` — 0.1.4 as of
-  library CP-63). The
+  the library from PyPI (`gsj-harness-rollout-server` — 0.1.7 verified at
+  library CP-83). The
   **server role** additionally needs the library repo
   (`git clone https://github.com/MHGanainy/gsj-harness-rollout-server`,
   current since CP-29) as this repo's SIBLING, for `vendor/polar/`; a
@@ -88,10 +88,14 @@ running, together —
   and quarantines bad traces with findings attached.
 
 Estate bring-up: THIS repo pair does not carry the full recipe. The
-library repo's `estate/README.md` holds only this estate's deltas and
-the serving scripts; the authoritative cold-start walk
-(`staging/BRINGUP.md`) lives in a third repo, the predecessor
-`gsj-envloader`, which your operator holds (F-33). If someone already
+library repo's `estate/README.md` covers corpus-to-estate creation and
+adoption, plus the reference estate's deltas and serving scripts. The
+cold-start host prerequisites (`staging/BRINGUP.md`) remain readable in
+the archived predecessor
+[`gsj-envloader` at v0.8.0](https://github.com/MHGanainy/gsj-envloader/blob/v0.8.0/staging/BRINGUP.md)
+(F-33); its frozen `sandbox/` recipe also supplied the CP-64 harness
+image build. These are dependencies on frozen evidence, not instructions
+to modify or revive that repository. If someone already
 runs the estate, you need only this project and the handover list above.
 
 ## Install (trainer host)
@@ -101,8 +105,8 @@ bash install.sh
 ```
 
 That is: a python3.12 venv; the library (from PyPI —
-`gsj-harness-rollout-server>=0.1.0`, a floor that resolves to 0.1.4 as
-of library CP-63; first published at CP-29 — or a
+`gsj-harness-rollout-server>=0.1.0`, a floor that resolves to 0.1.7 as
+verified at library CP-83; first published at CP-29 — or a
 sibling-checkout wheel when one exists, which takes precedence; the
 library installs FIRST so a failure lands before the multi-GB
 requirements download, keeping F-31's property); `requirements.txt` (the
@@ -473,9 +477,13 @@ off-mode signature).
   live here — "a thinking-on estate fails every episode by design" —
   described the off-pins gate and stopped being true when G6 re-pinned
   per mode, ADR-0024.)
-- Suites, if you check out the library repo: root 169 (as of library
-  CP-65), corpus 67, mcp-service 107, vendored Polar 175 passed / 3
-  pre-existing failures.
+- Source suites measured at library CP-83: root 176, corpus 196,
+  mcp-service 134. The corpus total is CP-82's 109 plus 87 estate-boundary
+  regressions. Vendored Polar remains CP-82's 175 passed / 3 pre-existing
+  failures; it was not rerun for this documentation correction.
+  This repo's current suite is 31: 26 bridge tests + 5 grader tests.
+  Those tests do not exercise the multi-step orchestration or prove a
+  GPU optimizer step; the per-checkpoint run evidence is separate.
 
 ## The bank
 
