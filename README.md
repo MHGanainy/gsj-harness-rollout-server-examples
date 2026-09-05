@@ -34,6 +34,14 @@ python train_loop.py --row 0 --steps 2 --episodes 64 \
     --sync-cmd 'bash sync_engine_local.sh {ckpt}'
 ```
 
+Use a fresh absent or empty `--run-dir` for every invocation. A nonempty
+run is refused before collection; resume is unsupported. `{ckpt}` must
+appear as a standalone **unquoted** word inside the quoted `--sync-cmd`
+template. The loop supplies shell quoting for the exported path, including
+spaces and apostrophes. The sync measurement covers command start through
+`/v1/models` readiness, including shell execution; failure diagnostics
+report elapsed time too.
+
 Per step it collects N episodes (train.py's audited collect stage —
 image-pin assert, F-27/F-51 counters), grades them
 (`verl_bridge/reward_cited_pages.py` — the F-02 answer), converts
@@ -125,11 +133,12 @@ proofs, owned by any real run:
   explosion (F-09) but std-normalization still amplified the lone
   rewarded episode to +10.39 at CP-21; opting back in is an explicit
   flag that warns.
-- **Entropy/KL control.** Off by default (the measured one-step shape);
-  the loop warns loudly on any multi-step run with both off — CP-21
-  watched the post-sync distribution visibly narrow in exactly that
-  configuration. `--entropy-coeff` / `--use-kl-loss` arm verl's own
-  controls.
+- **Entropy/KL control is unsupported.** Nonzero `--entropy-coeff` and
+  `--use-kl-loss` refuse before collection, imports or worker allocation.
+  `loop.make_worker` also refuses unsupported values. The loop still warns
+  on multi-step runs with both off: CP-21 observed distribution narrowing.
+  Phase 5 must fund safe entropy and a reference-policy leg; neither
+  control is enabled by this checkpoint. See [the cost and refusal contract](example_project/RUNBOOK.md#cp-86-training-contract).
 
 **The bridge is consumer code, not library code** (library ADR-0018: a
 bridge exists to feed a trainer, so it is the trainer's). A bug in
@@ -224,7 +233,7 @@ additions, CP-69's answers):
    proof-of-loop bank, not a training corpus. Growing it means running
    the library repo's corpus pipeline (F-38).
 4. **Tuning instead of guarding.** The loop ships the F-08 guard
-   (Dr.GRPO) and warns on unarmed entropy/KL — but those are guards; a
+   (Dr.GRPO) and refuses unsupported entropy/KL flags — but those are guards; a
    real run TUNES clip ratios, lr, and the controls against its own
    curve rather than inheriting CP-17's knobs.
 5. **Throughput.** Pooled collection is measured (above); collection

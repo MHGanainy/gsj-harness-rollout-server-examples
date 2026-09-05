@@ -12,10 +12,10 @@ entropy/KL caution — and, since library CP-31, the thinking-mode/pins
 agreement (G6 is per-mode pins data; this script refuses to spend the
 estate on a mismatch it can see). RUNBOOK.md walks this file end to end.
 
-Stages (composable across hosts — collect on the estate, train on a GPU):
+Stages (inspection can read old bodies; training collects a fresh batch):
     python train.py --collect-only        # submit + save accepted bodies
     python train.py --dry-run             # grade+ingest+batch, CPU only
-    python train.py --snapshot <hf dir>   # the full step, needs the GPU
+    python train.py --snapshot <hf dir> --out <fresh-dir>  # fresh collect + GPU step
 
 Pass the SAME --thinking (or none, for the config's value) to every stage
 that touches one --out directory: the trainer-side gate re-runs at ingest
@@ -101,7 +101,27 @@ def parse_args():
                         "device IS your chosen one (F-34: default is whatever "
                         "the environment exposes first; on a shared box check "
                         "`nvidia-smi` and pick a free ~90 GB device)")
-    return p.parse_args()
+    args = p.parse_args()
+    for name in ("episodes", "timeout"):
+        value = getattr(args, name)
+        if not 0 < value < float("inf"):
+            p.error(f"found --{name} {value}; expected a positive finite value; "
+                    f"use --{name} with a value greater than zero")
+    if args.collect_only and args.dry_run:
+        p.error("found --collect-only with --dry-run; expected one stage; use one flag")
+    return args
+
+
+def require_fresh_directory(path: Path) -> None:
+    """A new policy collection cannot inherit records from an earlier run.
+
+    Dry-run is the explicit read-only archive path; this is not resumability.
+    """
+    if path.exists() and (not path.is_dir() or next(path.iterdir(), None) is not None):
+        sys.exit(f"found nonempty or non-directory run path {path}; expected an "
+                 "absent or empty directory for a fresh collection; use a new "
+                 "--out/--run-dir and preserve the old evidence. Use --dry-run "
+                 "with train.py to inspect existing bodies without training.")
 
 
 def _effective_thinking(args) -> tuple[str, str]:
@@ -248,6 +268,7 @@ def collect(cfg, rows: list[dict], out: Path, episodes: int, timeout: float,
     `task_suffix` distinguishes repeat submissions of one row (Polar 409s
     a duplicate task id — rollout server.py:119); train_loop.py passes
     `-step<k>` so each loop step is its own task."""
+    require_fresh_directory(out)
     client = RolloutClient(cfg.polar.rollout.base_url)
     tasks = []
     total_ok = total_rejected = 0
@@ -441,6 +462,8 @@ def main() -> None:
     # backgrounded `… > log` showed nothing for an entire collect.
     sys.stdout.reconfigure(line_buffering=True)
     args = parse_args()
+    if not args.dry_run:
+        require_fresh_directory(args.out)
     if args.gpu is not None:
         # F-34: must land before the first CUDA call — under
         # CUDA_VISIBLE_DEVICES the worker's hardcoded cuda:0 maps to the
@@ -474,7 +497,7 @@ def main() -> None:
     rows = bank_rows(Path(args.bank))
     # --dry-run never touches the estate: it reads what a prior
     # --collect-only saved (grade_and_ingest says so if nothing is there).
-    if args.collect_only or (not args.dry_run and not args.out.exists()):
+    if not args.dry_run:
         collect(cfg, rows, args.out, args.episodes, args.timeout)
         if args.collect_only:
             return
@@ -496,8 +519,8 @@ def main() -> None:
     # ---- the step: every numeric op verl's, wired by loop.py -------------
     loop.stamp_meta(data)
     worker = loop.make_worker(args.snapshot)   # entropy/KL OFF: right for ONE
-    # audited step; a multi-step run must arm them — CP-21 measured the
-    # post-sync distribution visibly narrowing without them.
+    # audited step. Both controls are unsupported pending phase 5; CP-21
+    # measured the post-sync distribution narrowing without them.
     replay = loop.recompute_old_log_probs(
         data, worker, floor_mean=bridge.H200_REPLAY_FLOOR_MEAN,
         floor_per_position=bridge.H200_REPLAY_FLOOR_PER_POSITION)

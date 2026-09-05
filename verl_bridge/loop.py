@@ -16,8 +16,8 @@ their script rather than inherit it silently (CP-25's rule):
   - the three bridge assertions: they run inside
     `bridge.ingest_session_result`, at the caller's call site.
   - entropy/KL control: `make_worker` defaults both OFF (the measured
-    one-step shape); a multi-step run must turn them on — CP-21 watched
-    the post-sync distribution visibly narrow without them.
+    one-step shape); nonzero entropy/KL requests are refused. CP-21
+    watched the post-sync distribution narrow; safe controls await phase 5.
 
 Heavy imports (torch, verl) happen inside functions so the desk half of a
 caller (`--dry-run`, collection) runs on a CPU-only box.
@@ -107,9 +107,12 @@ def make_worker(snapshot: str, *, max_token_len: int = MAX_TOKEN_LEN,
     """verl's own `TrainingWorker`, standalone (WORLD_SIZE=1, no Ray), wired
     exactly as `ActorRolloutRefWorker.init_model` wires the classic path.
     Defaults are the CP-17/CP-21 measured knobs. entropy_coeff/use_kl_loss
-    default OFF — right for one audited step, WRONG for a multi-step run
-    (the caller's script must say so, not this signature).
+    default OFF; unsupported values are refused before CUDA/worker allocation.
     """
+    if entropy_coeff != 0.0 or use_kl_loss:
+        raise ValueError(f"found entropy_coeff={entropy_coeff}, use_kl_loss={use_kl_loss}; "
+                         "expected zero entropy and KL disabled: unsupported controls; "
+                         "use the defaults until phase 5 funds their implementation")
     import torch
     from functools import partial
     from verl.trainer.config.config import CheckpointConfig

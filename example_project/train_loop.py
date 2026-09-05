@@ -41,8 +41,8 @@ Usage (two steps, the CP-69 proof shape):
         --snapshot <pinned HF dir> \
         --sync-cmd 'bash sync_engine_local.sh {ckpt}'
 
-Pass the SAME --thinking to every invocation that shares a run dir; the
-pins preflight is train.py's, reused (RUNBOOK §Thinking).
+Use a fresh absent or empty --run-dir for each invocation; resume is
+unsupported. The pins preflight is train.py's, reused (RUNBOOK §Thinking).
 """
 
 from __future__ import annotations
@@ -50,6 +50,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import shlex
 import subprocess
 import sys
 import time
@@ -98,8 +100,8 @@ def parse_args():
                         "the ENGINE, not the gateway)")
     p.add_argument("--sync-cmd", default=None,
                    help="shell command that restarts the engine on a new "
-                        "checkpoint; '{ckpt}' is replaced with the HF export "
-                        "dir. The estate recipes: sync_engine_local.sh "
+                        "checkpoint; standalone unquoted {ckpt} is replaced "
+                        "with the shell-quoted HF export dir. The estate recipes: sync_engine_local.sh "
                         "(run on the serving host) or "
                         "estate/serving/serve-updated.sh (workstation-side, "
                         "F-29). REQUIRED when --steps > 1")
@@ -118,12 +120,9 @@ def parse_args():
                         "config/tokenizer — no hardcoded pad token")
     p.add_argument("--lr", type=float, default=1e-5)
     p.add_argument("--entropy-coeff", type=float, default=0.0,
-                   help="verl's entropy bonus — CP-21: a multi-step run "
-                        "should arm this; 0.0 reproduces the measured "
-                        "one-step shape and the loop warns")
+                   help="unsupported: nonzero values are refused before collection")
     p.add_argument("--use-kl-loss", action="store_true",
-                   help="arm verl's KL loss (off reproduces the measured "
-                        "one-step shape; the loop warns when steps > 1)")
+                   help="unsupported: refused before collection; no reference-policy leg")
     p.add_argument("--grpo-std-normalization", action="store_true",
                    help="opt back into verl's std-normalized GRPO. Default "
                         "OFF — the F-08 guard: see the comment at the "
@@ -132,6 +131,19 @@ def parse_args():
                    help="train even when no episode earned reward (the step "
                         "is then weight-decay-only); default: refuse loudly")
     args = p.parse_args()
+    for name in ("steps", "episodes", "timeout", "sync_timeout"):
+        value = getattr(args, name)
+        if not 0 < value < float("inf"):
+            flag = name.replace("_", "-")
+            p.error(f"found --{flag} {value}; expected a positive finite value; "
+                    f"use --{flag} with a value greater than zero")
+    if args.entropy_coeff != 0.0 or args.use_kl_loss:
+        p.error(f"found entropy_coeff={args.entropy_coeff}, use_kl_loss={args.use_kl_loss}; "
+                "expected entropy_coeff=0 and KL disabled: both controls are unsupported. "
+                "Use --entropy-coeff 0 without --use-kl-loss; phase 5 must fund a safe "
+                "entropy path and a reference policy before enabling them.")
+    if args.sync_cmd:
+        sync_command(args.sync_cmd, "checkpoint")  # validate before collection
     if args.steps > 1 and not args.sync_cmd:
         p.error("--steps > 1 needs --sync-cmd: without a sync, step 2 would "
                 "collect from the PRE-step-1 policy while the loop claims "
@@ -193,22 +205,51 @@ def wait_for_engine(engine_url: str, model: str, timeout_s: float) -> float:
              "engine in an unknown state.")
 
 
+def sync_command(template: str, hf_dir: str) -> str:
+    """Each {ckpt} must be a standalone, unquoted shell word.
+
+    Shell quoting is supplied here, exactly once. Other shell syntax is
+    operator-owned. The placeholder is optional for checkpoint-free commands.
+    """
+    for match in re.finditer(re.escape("{ckpt}"), template):
+        # shlex alone loses the distinction between quoted/unquoted words.
+        prefix = template[:match.start()]
+        lexer = shlex.shlex(prefix, posix=True)
+        try:
+            list(lexer)
+        except ValueError:
+            sys.exit("found quoted {ckpt}; expected a standalone unquoted placeholder; "
+                     "use --sync-cmd 'bash sync_engine_local.sh {ckpt}'")
+        if ((match.start() and not template[match.start()-1].isspace())
+                or (match.end() < len(template) and not template[match.end()].isspace())):
+            sys.exit("found embedded {ckpt}; expected a standalone unquoted placeholder; "
+                     "use --sync-cmd 'bash sync_engine_local.sh {ckpt}'")
+    return template.replace("{ckpt}", shlex.quote(hf_dir))
+
+
 def run_sync(sync_cmd: str, hf_dir: str, engine_url: str, model: str,
              sync_timeout: float) -> float:
     """The restart sync, scripted (CP-69 Step 3): what CP-17 and CP-21 did
     by hand. Returns the measured downtime (sync start → /v1/models OK)."""
-    cmd = sync_cmd.replace("{ckpt}", hf_dir)
+    cmd = sync_command(sync_cmd, hf_dir)
     print(f"[loop] sync: {cmd}")
     started = time.monotonic()
     result = subprocess.run(cmd, shell=True)
     if result.returncode != 0:
         sys.exit(f"train_loop.py: the sync command exited "
-                 f"{result.returncode} — the engine's state is UNKNOWN "
+                 f"{result.returncode} after {time.monotonic() - started:.3f}s from command start "
+                 "— the engine's state is UNKNOWN "
                  "(possibly stopped with no replacement). Read its output "
                  "above; restore the engine by hand before rerunning. A "
                  "loop that shrugged here would collect from a stale or "
                  "dead engine — the failure mode this stage exists to stop.")
-    downtime = wait_for_engine(engine_url, model, sync_timeout)
+    try:
+        wait_for_engine(engine_url, model, sync_timeout)
+    except SystemExit:
+        print(f"[loop] sync failed after {time.monotonic() - started:.3f}s from command start",
+              file=sys.stderr)
+        raise
+    downtime = time.monotonic() - started
     print(f"[loop] sync: {model!r} back at {engine_url} — "
           f"{downtime:.0f}s from sync start to /v1/models")
     return downtime
@@ -221,6 +262,8 @@ def probe_paths(step_dir: Path) -> tuple[Path, Path]:
 def main() -> None:
     sys.stdout.reconfigure(line_buffering=True)    # F-46
     args = parse_args()
+    run_dir = args.run_dir or (_HERE / "runs" / f"loop-row{args.row}")
+    train.require_fresh_directory(run_dir)
     if args.gpu is not None:
         os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)   # F-34
 
@@ -242,7 +285,6 @@ def main() -> None:
         sys.exit(f"train_loop.py: --row {args.row} out of range — the bank "
                  f"holds train rows 0..{len(rows) - 1}")
     row = rows[args.row]
-    run_dir = args.run_dir or (_HERE / "runs" / f"loop-row{args.row}")
     run_dir.mkdir(parents=True, exist_ok=True)
     engine_url = args.engine_url or cfg.estate.serving_base_url
     model = cfg.estate.model
@@ -257,8 +299,8 @@ def main() -> None:
               "off — CP-21 measured the post-sync distribution visibly "
               "narrowing in exactly this configuration and warned that one "
               "more step deepens the collapse. This run proceeds as "
-              "configured (measured, not tuned); arming them is "
-              "--entropy-coeff / --use-kl-loss.")
+              "configured (measured, not tuned). Both controls are unsupported; "
+              "phase 5 must decide their memory and compute budget.")
 
     worker = None
     probe_stream: Path | None = None               # fixed for the whole run

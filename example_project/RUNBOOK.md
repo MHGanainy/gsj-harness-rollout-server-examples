@@ -234,9 +234,9 @@ entire collect — python block-buffers redirected stdout, F-20's shape
 on the trainer side, F-46.)
 
 ```
-./.venv/bin/python train.py --collect-only        # submit the bank's train rows
-./.venv/bin/python train.py --dry-run             # grade+convert on CPU, no GPU
-./.venv/bin/python train.py --snapshot <hf dir>   # the optimizer step + HF export
+./.venv/bin/python train.py --collect-only --out collected-inspect
+./.venv/bin/python train.py --dry-run --out collected-inspect  # CPU inspection
+./.venv/bin/python train.py --snapshot <hf-dir> --out collected-train  # FRESH collection + step
 ```
 
 `<hf dir>` is the SERVED model's weights, pinned to the ENGINE's
@@ -299,7 +299,8 @@ side you are on). The loop refuses `--steps > 1` without a sync
 command, refuses a zero-reward batch (`--allow-zero-advantage`
 overrides, loudly), ships the F-08 guard by default
 (`--grpo-std-normalization` opts back in), and warns on multi-step runs
-with entropy/KL unarmed. One worker persists across steps — optimizer
+with entropy/KL unarmed. Nonzero entropy or KL flags refuse before
+collection; they do not enable working controls. One worker persists across steps — optimizer
 state continues; only the engine restarts.
 
 ## Thinking — the two modes, what each costs, and the pins that must agree
@@ -467,10 +468,10 @@ off-mode signature).
   reading above holds under ON exactly as written.
 - **Singleton GRPO groups are dropped loudly** (F-10): a group of one has
   no baseline and verl hands back the raw reward as its "advantage".
-- **Entropy/KL are OFF** in this one-step shape — right for an audited
-  step, wrong for a run: the measured post-sync distribution visibly
-  narrowed (format-copying onset). Arm them in `loop.make_worker` before
-  any multi-step schedule.
+- **Entropy/KL are unsupported and OFF.** CP-21's post-sync distribution
+  narrowed (format-copying onset). Nonzero requests to `loop.make_worker`
+  now refuse before CUDA allocation. Phase 5 owns the control decision;
+  this checkpoint does not establish a safe multi-step training policy.
 - **Thinking ships ON** (`harness.thinking: "medium"`) since library
   CP-31 — the cost, the return, the per-mode G6 semantics, and the pins
   coupling are §Thinking above. (The pre-CP-30 statement that used to
@@ -548,3 +549,60 @@ as live until library CP-40): `python -m gsj_rollout.cli` has its
 (subprocess-tested) — and `load_config` now rejects both a
 `/v1`-suffixed `serving_base_url` and a gateway port/`public_url`
 mismatch at load, naming the field and the cure.
+
+
+## CP-86 training contract
+
+A collecting or training invocation requires an absent or empty `--out`
+(`train.py`) or `--run-dir` (`train_loop.py`). Existing records are refused
+before imports or collection, and `collect()` checks its own output boundary.
+No implicit resume or train-from-old-directory path remains. Keep the old
+records; use `train.py --dry-run --out <old-directory>` to inspect them on
+CPU with their matching config, artifacts and thinking pins. A full
+`train.py --snapshot ...` invocation collects its own fresh batch; it does
+not consume the preceding `--collect-only` batch. Cross-host archive training
+would require a separately designed snapshot/task/pins/step binding.
+
+Steps, episode counts and timeouts must be positive and finite. Nonzero
+`--entropy-coeff` (including NaN/infinity) and `--use-kl-loss` refuse in
+argument validation, before imports and any collection. `make_worker` also
+refuses unsupported controls before CUDA. Both remain zero/off; the all-zero
+and singleton guards, two masks, dynamic microbatches, 32,768-token budget,
+literal `<task_id>.md` convention, persistent worker and frozen CP-21/Slime
+history are unchanged.
+
+Entropy and KL have different costs. These are allocation estimates, not a
+new GPU measurement: Qwen3-0.6B's pinned config has 151,936 vocabulary entries.
+A 32,768-position float32 vocabulary buffer alone is **18.546875 GiB**;
+several live logits/softmax/gradient temporaries multiply that pressure.
+This is an illustrative buffer geometry, not a claim that the current
+dynamic batch pads all 192 rows together. F-13 twice OOMed an H200 on the
+full-vocabulary path; a safe chunked/recomputed entropy implementation needs
+its own gradient/loss and peak-memory proof. KL needs a frozen reference
+policy and another log-probability forward pass over the batch: roughly
+**1.2 GB of BF16 weights alone** for a nominal 0.6B model (2 bytes × parameter
+count), plus activation/workspace memory. It does not need a second optimizer.
+Reference logprobs themselves are small; obtaining them is the model cost.
+CP-82 prices real controls at approximately **1–3 engineer-days plus GPU
+validation**, with runtime cost unmeasured. Phase 5 decides whether to pay.
+
+The sync template owns its other shell syntax. Every `{ckpt}` must be a
+standalone unquoted word, for example
+`--sync-cmd 'bash sync_engine_local.sh {ckpt}'`. Do not add inner quotes:
+the loop inserts `shlex.quote(hf_dir)` exactly once and refuses quoted or
+embedded placeholders before collection. The timer measures from command
+start through readiness. A local real-shell/HTTP test with 0.25 s shell
+sleep plus 0.08 s HTTP delay checks the whole interval; failure messages
+also retain command-start elapsed time. This host test is not a GPU restart.
+
+B17 remains deferred: CP-86 finished before the booked 5 September 23:00
+Cairo window. All four living backend assignments are unchanged; the archived
+predecessor is frozen. At the window, re-verify vLLM **0.26.0**, then prefer
+removing the inert assignment to preserve the previously observed automatic
+selection (FLASH_ATTN/FlashAttention 3). The supported `--attention-backend
+FLASH_ATTN` would impose a backend choice instead, so it is not an equivalent
+cleanup. No backend correction closes until restart, effective-backend
+inspection and unchanged replay have been recorded on GPU 0 or 7.
+First inspect the frozen CP-82 192-row archive, artifacts and rollout.yaml;
+no box or archive was inspected in this host-only checkpoint. F-35's allocator
+retry warning is not by itself a crash; its RUNBOOK measurements remain.
