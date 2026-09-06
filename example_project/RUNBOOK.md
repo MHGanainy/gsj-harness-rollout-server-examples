@@ -633,3 +633,41 @@ relax the fresh-directory requirement. CP-87 reads the retained CP-82 input
 through an explicit diagnostic harness with the recorded snapshot revision
 and config/artifact fixity; an ordinary collecting invocation still collects
 its own new batch.
+
+**CP-89 covariates.** Every stage boundary also carries `allocator_before`
+/ `allocator_after` — torch's caching-allocator counters for the training
+device (`num_alloc_retries`, `num_device_alloc`, `num_device_free`,
+`num_ooms`, reserved and allocated bytes, current and peak) — and
+`gpus_before` / `gpus_after`, one row per GPU on the host with memory used
+and SM utilisation, i.e. the other tenants' load beside our own. Both are
+sampled outside the timed window (before the start stamp, after the end
+stamp), read on the host without a CUDA barrier, and can never turn into
+the stage's failure: a sampler error is recorded as text, a `nvidia-smi`
+that does not answer in 8 s is recorded as `query timeout after 8s`, and
+both are `None` on a host without CUDA or without `nvidia-smi`. The summary
+top level records `environment` (values for the torch/CUDA-shaping
+variables — `PYTORCH_CUDA_ALLOC_CONF` above all, `None` means torch's
+defaults — and names only for every other variable, so no token lands in a
+run record) and, once the worker exists, `runtime` (torch, CUDA and driver
+versions and the allocator backend). CP-87's B18 record had none of these;
+a stage's `num_device_free` delta is the direct signature of a cache
+release, and a wait that leaves the counters flat is not one.
+
+**What a cold worker's first optimizer call does on the H200 (CP-89).**
+When the dynamic 32,768 budget's largest microbatch asks for its 21.3 GB
+bf16 logits and the cache is full, torch frees every cached segment and
+re-grows the pool one driver call at a time; on this box each
+`cudaFree`/`cudaMalloc` costs about 50–80 ms, so the stage sits half an
+hour at 0% SM with the main thread in D at the driver lock and
+`nvidia-smi` timing out — measured 1,012 s of frees (12,374 of them) plus
+about 1,150 s of re-growth inside a 2,874 s stage, twice. It recovers on
+its own; do not TERM it. The stage record says which case you are in:
+`allocator_after.num_device_free` thousands above `allocator_before` is
+the release, `num_device_alloc` climbing with frees flat is growth, both
+flat is not this. `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`
+measured −54% on the stage with identical pg_loss and no allocation
+failure at all, and is the first thing to try when a run must finish
+sooner; it is not the default because the cure is the operator's
+decision (F-81's CP-89 row). A warm worker (step 2 onward) makes none of
+these calls. The exit tail after the last stage (4–7 minutes with the
+GPU still held) is the same driver tearing the mappings down.

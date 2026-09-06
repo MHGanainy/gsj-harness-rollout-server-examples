@@ -144,7 +144,7 @@ def run_loop(tmp_path, monkeypatch):
     monkeypatch.setattr(train_loop.probe_sync, "probe", probe)
     monkeypatch.setattr(train_loop.probe_sync, "compare", compare)
     return SimpleNamespace(args=args, control=control, calls=calls, costs=costs,
-                           worker=worker, record=record)
+                           worker=worker, record=record, clock=clock)
 
 
 def test_two_steps_persist_separate_costs_and_reuse_optimizer(run_loop):
@@ -257,3 +257,99 @@ with step_stage(run_dir, summary, step, "optimizer"):
     assert step["stages"]["optimizer"]["started_monotonic_s"] > 0.
     assert "duration_s" not in step["stages"]["optimizer"]
     assert "ended_monotonic_s" not in step["stages"]["optimizer"]
+
+
+# -- CP-89: the covariates beside every stage boundary. CP-87's diagnosis
+# had the stage clock and nothing else; these ride along from here.
+
+def test_stage_boundaries_carry_covariates_outside_the_timed_window(run_loop, monkeypatch):
+    counters = SimpleNamespace(frees=0)
+
+    def allocator():
+        counters.frees += 1
+        return {"num_device_free": counters.frees, "num_alloc_retries": 0}
+
+    def census():
+        run_loop.clock.now += 8.0          # a slow nvidia-smi at every boundary
+        return [{"gpu": 7, "memory_used_mib": 4, "sm_percent": 0},
+                {"gpu": 5, "memory_used_mib": 124421, "sm_percent": 100}]
+
+    monkeypatch.setattr(train_loop, "allocator_counters", allocator)
+    monkeypatch.setattr(train_loop, "gpu_census", census)
+    train_loop.main()
+    summary = run_loop.record()
+    assert summary["environment"]["values"].keys() == set(train_loop.ENVIRONMENT_RECORDED)
+    assert "runtime" in summary
+    for step in summary["steps"]:
+        for name, stage in step["stages"].items():
+            if stage["status"] == "skipped":
+                continue
+            # the census advanced the clock 16 s per stage; none of it is timed
+            # (step 1's probe_before holds two probes, the floor's is the second)
+            probes = 2 if name == "probe_before" and step["step"] == 1 else 1
+            assert stage["duration_s"] == probes * run_loop.costs[name]
+            assert stage["allocator_after"]["num_device_free"] > stage["allocator_before"]["num_device_free"]
+            assert stage["gpus_before"][1]["sm_percent"] == 100
+            assert stage["gpus_after"][0]["gpu"] == 7
+
+
+def test_covariate_samplers_never_become_the_stage_failure(tmp_path, monkeypatch):
+    def broken():
+        raise RuntimeError("NVML lost the device")
+
+    monkeypatch.setattr(train_loop, "allocator_counters", broken)
+    monkeypatch.setattr(train_loop, "gpu_census", lambda: "query timeout after 8s")
+    step = {"step": 1, "status": "running"}
+    summary = {"steps": [step]}
+    with train_loop.step_stage(tmp_path, summary, step, "optimizer"):
+        pass
+    stage = json.loads((tmp_path / "summary.json").read_text())["steps"][0]["stages"]["optimizer"]
+    assert stage["status"] == "complete"
+    assert stage["allocator_before"] == "RuntimeError: NVML lost the device"
+    assert stage["allocator_after"] == "RuntimeError: NVML lost the device"
+    assert stage["gpus_after"] == "query timeout after 8s"
+
+
+def test_environment_record_keeps_allocator_values_and_other_names_only(monkeypatch):
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    monkeypatch.setenv("GSJ_TEST_SUBMIT_TOKEN", "hunter2-never-recorded")
+    record = train_loop.environment_record()
+    assert record["values"]["PYTORCH_CUDA_ALLOC_CONF"] == "expandable_segments:True"
+    assert "GSJ_TEST_SUBMIT_TOKEN" in record["other_names"]
+    assert "hunter2" not in json.dumps(record)
+    monkeypatch.delenv("PYTORCH_CUDA_ALLOC_CONF")
+    assert train_loop.environment_record()["values"]["PYTORCH_CUDA_ALLOC_CONF"] is None
+
+
+def test_allocator_counters_absent_until_cuda_exists():
+    torch = sys.modules.get("torch")
+    if torch is None or not torch.cuda.is_available() or not torch.cuda.is_initialized():
+        assert train_loop.allocator_counters() is None
+        assert train_loop.runtime_record() is None or torch is not None
+    else:  # a CUDA host running the suite after something initialised CUDA
+        assert set(train_loop.allocator_counters()) == set(train_loop.ALLOCATOR_COUNTERS)
+
+
+def test_gpu_census_parses_every_device_and_names_timeouts(monkeypatch):
+    def run(cmd, **kwargs):
+        assert cmd[0] == "nvidia-smi" and kwargs["timeout"] == 8.0
+        return SimpleNamespace(returncode=0, stderr="",
+                               stdout="0, 4, 0\n5, 124421, 100\n7, 138947, 1\n")
+
+    monkeypatch.setattr(train_loop.subprocess, "run", run)
+    assert train_loop.gpu_census() == [
+        {"gpu": 0, "memory_used_mib": 4, "sm_percent": 0},
+        {"gpu": 5, "memory_used_mib": 124421, "sm_percent": 100},
+        {"gpu": 7, "memory_used_mib": 138947, "sm_percent": 1}]
+
+    def timeout(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+
+    monkeypatch.setattr(train_loop.subprocess, "run", timeout)
+    assert train_loop.gpu_census() == "query timeout after 8s"
+
+    def absent(cmd, **kwargs):
+        raise FileNotFoundError(cmd[0])
+
+    monkeypatch.setattr(train_loop.subprocess, "run", absent)
+    assert train_loop.gpu_census() is None

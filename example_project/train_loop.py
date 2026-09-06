@@ -269,6 +269,103 @@ def write_summary(run_dir: Path, summary: dict) -> None:
     pending.replace(run_dir / "summary.json")
 
 
+# -- the CP-89 covariates. CP-87's B18 diagnosis had the stage clock but not
+# the allocator's own counters, the allocator's configuration, or the other
+# tenants' load; each of those had to be reconstructed after the fact or was
+# simply unknown. They ride along with every stage record from here.
+ENVIRONMENT_RECORDED = (
+    "PYTORCH_CUDA_ALLOC_CONF", "PYTORCH_ALLOC_CONF", "PYTORCH_NO_CUDA_MEMORY_CACHING",
+    "CUDA_VISIBLE_DEVICES", "CUDA_LAUNCH_BLOCKING", "CUDA_MODULE_LOADING",
+    "CUDA_DEVICE_MAX_CONNECTIONS", "OMP_NUM_THREADS", "MKL_NUM_THREADS",
+    "TORCHINDUCTOR_COMPILE_THREADS", "TORCH_NCCL_BLOCKING_WAIT", "NCCL_DEBUG",
+    "MASTER_ADDR", "MASTER_PORT", "RANK", "WORLD_SIZE", "LOCAL_RANK",
+    "GSJ_PINS_PATH", "PYTHONPATH", "PYTHONDONTWRITEBYTECODE",
+)
+ALLOCATOR_COUNTERS = (
+    "num_alloc_retries", "num_device_alloc", "num_device_free", "num_ooms",
+    "reserved_bytes.all.current", "reserved_bytes.all.peak",
+    "allocated_bytes.all.current", "allocated_bytes.all.peak",
+)
+
+
+def environment_record() -> dict:
+    """The trainer's environment as launched: VALUES for the variables that
+    shape torch/CUDA behaviour (the allocator's configuration above all —
+    unset means torch's defaults), NAMES ONLY for everything else, so a
+    token in the environment never lands in a run record."""
+    return {"values": {key: os.environ.get(key) for key in ENVIRONMENT_RECORDED},
+            "other_names": sorted(key for key in os.environ
+                                  if key not in ENVIRONMENT_RECORDED)}
+
+
+def allocator_counters() -> dict | None:
+    """torch's caching-allocator counters for the current device, read on the
+    host without a CUDA barrier; None until torch is imported and CUDA
+    initialised (this module never imports torch itself). `num_device_free`
+    counts one driver free per released segment, `num_alloc_retries` one
+    per allocation retried after a cache release — the two signatures a
+    cache-release wait would leave."""
+    torch = sys.modules.get("torch")
+    if torch is None or not torch.cuda.is_available() or not torch.cuda.is_initialized():
+        return None
+    stats = torch.cuda.memory_stats()
+    return {key: stats.get(key) for key in ALLOCATOR_COUNTERS}
+
+
+def gpu_census(timeout_s: float = 8.0) -> list | str | None:
+    """Every GPU on the host — the other tenants' load beside our own, one
+    row per device. None without nvidia-smi; the error text when the query
+    fails or does not return in `timeout_s` (an NVML query that hangs is
+    itself an observation, CP-87 logged 23 of them)."""
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index,memory.used,utilization.gpu",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=timeout_s)
+    except FileNotFoundError:
+        return None
+    except subprocess.TimeoutExpired:
+        return f"query timeout after {timeout_s:.0f}s"
+    if result.returncode != 0:
+        return f"exit {result.returncode}: {result.stderr.strip()}"
+    rows = []
+    for line in result.stdout.strip().splitlines():
+        index, used, sm = (field.strip() for field in line.split(","))
+        rows.append({"gpu": int(index), "memory_used_mib": int(used),
+                     "sm_percent": int(sm)})
+    return rows
+
+
+def runtime_record() -> dict | None:
+    """What actually ran: torch/CUDA versions and the allocator backend
+    (native or cudaMallocAsync); None before torch is imported."""
+    torch = sys.modules.get("torch")
+    if torch is None:
+        return None
+    record = {"torch": torch.__version__, "cuda": torch.version.cuda}
+    try:
+        record["allocator_backend"] = torch.cuda.get_allocator_backend()
+    except Exception as exc:  # noqa: BLE001 — recorded, never fatal
+        record["allocator_backend"] = f"{type(exc).__name__}: {exc}"
+    try:
+        driver = subprocess.run(
+            ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=8.0)
+        record["driver"] = (driver.stdout.split()[0] if driver.returncode == 0
+                            and driver.stdout.split() else None)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        record["driver"] = None
+    return record
+
+
+def _sample(sampler) -> object:
+    """A covariate sampler must never turn into the stage's failure."""
+    try:
+        return sampler()
+    except Exception as exc:  # noqa: BLE001 — recorded, never raised
+        return f"{type(exc).__name__}: {exc}"
+
+
 @contextmanager
 def step_stage(run_dir: Path, summary: dict, step_record: dict, name: str):
     """Persist a stage boundary before entering potentially silent GPU work.
@@ -278,8 +375,15 @@ def step_stage(run_dir: Path, summary: dict, step_record: dict, name: str):
     completion. Existing replay/advantage/optimizer metrics survive each write.
     This helper also serves an explicit fixed-archive diagnostic harness; it
     does not relax the collecting CLI's fresh-directory requirement.
+
+    Each boundary also carries the allocator counters and the host-wide GPU
+    census (CP-89), sampled OUTSIDE the timed window: before the start stamp
+    and after the end stamp, so a slow nvidia-smi never inflates a duration.
     """
-    stage = {"status": "running", "started_monotonic_s": time.monotonic()}
+    stage = {"status": "running",
+             "allocator_before": _sample(allocator_counters),
+             "gpus_before": _sample(gpu_census)}
+    stage["started_monotonic_s"] = time.monotonic()
     step_record.setdefault("stages", {})[name] = stage
     write_summary(run_dir, summary)
     print(f"[loop] stage {name} started (monotonic {stage['started_monotonic_s']:.6f}s)")
@@ -296,6 +400,8 @@ def step_stage(run_dir: Path, summary: dict, step_record: dict, name: str):
         stage["ended_monotonic_s"] = time.monotonic()
         stage["duration_s"] = (stage["ended_monotonic_s"]
                                - stage["started_monotonic_s"])
+        stage["allocator_after"] = _sample(allocator_counters)
+        stage["gpus_after"] = _sample(gpu_census)
         write_summary(run_dir, summary)
         print(f"[loop] stage {name} {stage['status']}: {stage['duration_s']:.3f}s")
 
@@ -347,7 +453,9 @@ def main() -> None:
     worker = None
     probe_stream: Path | None = None               # fixed for the whole run
     summary: dict = {"row": train.row_uid(row), "steps": [],
-                     "timing_clock": "time.monotonic", "pid": os.getpid()}
+                     "timing_clock": "time.monotonic", "pid": os.getpid(),
+                     "environment": environment_record(),   # CP-89: as launched
+                     "runtime": None}                       # filled once torch exists
 
     for k in range(1, args.steps + 1):
         step_dir = run_dir / f"step{k}"
@@ -415,6 +523,10 @@ def main() -> None:
                 worker = loop.make_worker(str(snapshot), lr=args.lr,
                                           entropy_coeff=args.entropy_coeff,
                                           use_kl_loss=args.use_kl_loss)
+            summary["runtime"] = runtime_record()
+            write_summary(run_dir, summary)
+            print(f"[loop] runtime: {summary['runtime']}; allocator config "
+                  f"{summary['environment']['values']['PYTORCH_CUDA_ALLOC_CONF']!r}")
             print(f"[loop] worker up from {snapshot} (lr={args.lr}, "
                   f"entropy_coeff={args.entropy_coeff}, "
                   f"use_kl_loss={args.use_kl_loss}); it PERSISTS across "
